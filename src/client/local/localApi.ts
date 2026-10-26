@@ -2,7 +2,6 @@ import initSqlJs, { type Database } from 'sql.js';
 import wasmUrl from 'sql.js/dist/sql-wasm.wasm?url';
 import { buildRoutes, matchRoute, type Route } from '../../../server/routes';
 import { SCHEMA } from '../../../server/schema';
-import { seedIfEmpty } from '../../../server/seed';
 import { HttpError } from '../../../server/services';
 import type { Optimizer } from '../../../server/optimizeRunner';
 import type { OptimizationResult } from '../../engine';
@@ -86,7 +85,6 @@ async function init(): Promise<Ctx> {
   raw.run('PRAGMA foreign_keys = ON');
   raw.exec(SCHEMA);
   const db = adaptSqlJs(raw);
-  if (!saved) seedIfEmpty(db);
 
   let timer: ReturnType<typeof setTimeout> | undefined;
   const persist = (): void => {
