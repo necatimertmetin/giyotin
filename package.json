@@ -1,0 +1,49 @@
+{
+  "name": "giyotin-kesim",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Matbaalar i\u00c3\u0192\u00c2\u00a7in giyotin kesim (guillotine cutting stock) optimizasyon uygulamas\u00c3\u201e\u00c2\u00b1",
+  "scripts": {
+    "dev": "concurrently -k -n api,web \"npm:dev:server\" \"npm:dev:client\"",
+    "dev:server": "tsx watch server/index.ts",
+    "dev:client": "vite",
+    "build": "npm run build:client && npm run build:server",
+    "build:client": "vite build",
+    "build:server": "esbuild server/index.ts server/optimizeWorker.ts --bundle --platform=node --format=esm --packages=external --outdir=dist/server --out-extension:.js=.mjs",
+    "start": "node dist/server/index.mjs",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run",
+    "test:e2e": "npm run build && npm run build:pages && playwright test",
+    "build:pages": "vite build --mode pages",
+    "preview:pages": "vite preview --mode pages",
+    "deploy:pages": "node scripts/deploy-pages.mjs"
+  },
+  "dependencies": {
+    "@emotion/react": "^11.14.0",
+    "@emotion/styled": "^11.14.1",
+    "@fastify/static": "^10.1.7",
+    "@mui/icons-material": "^7.3.11",
+    "@mui/material": "^7.3.11",
+    "fastify": "^5.12.7",
+    "react": "^19.3.1",
+    "react-dom": "^19.3.1",
+    "react-router-dom": "^7.18.4",
+    "sql.js": "^1.15.2"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.64.1",
+    "@types/node": "^26.6.5",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "@types/sql.js": "^1.4.11",
+    "@vitejs/plugin-react": "^6.1.2",
+    "concurrently": "^10.0.6",
+    "esbuild": "^0.28.2",
+    "fast-check": "^4.10.2",
+    "tsx": "^4.23.15",
+    "typescript": "^7.0.2",
+    "vite": "^8.3.5",
+    "vitest": "^5.0.5"
+  }
+}
