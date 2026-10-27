@@ -16,6 +16,13 @@ interface Props {
 type Criterion = 'sheets' | 'material' | 'cost' | 'waste' | 'offcut' | 'cuts';
 type Best = Record<Criterion, Set<string>>;
 
+/** "Plan 1", "Plan 2" … for ordinary plans (numbered without gaps); the single-stock plan is just "Tek Tabaka". */
+export function planName(plans: Plan[], id: string): string {
+  const plan = plans.find((p) => p.id === id);
+  if (plan?.objective.profile === 'single-stock') return 'Tek Tabaka';
+  return `Plan ${plans.filter((p) => p.objective.profile !== 'single-stock').findIndex((p) => p.id === id) + 1}`;
+}
+
 /** A plan is named after what it is actually best at in this comparison, never after how it was found. */
 const BEST_LABELS: Array<[Criterion, string]> = [
   ['sheets', 'En az tabaka'],
@@ -67,7 +74,8 @@ export function PlanComparison({ plans, selectedId, onSelect, horizontal = false
       {plans.map((p, i) => {
         const selected = p.id === selectedId;
         const isBest = (c: Criterion): boolean => multiple && best[c].has(p.id);
-        const tags = BEST_LABELS.filter(([c]) => isBest(c));
+        const tags: Array<[string, string]> = BEST_LABELS.filter(([c]) => isBest(c));
+        if (p.objective.profile === 'single-stock') tags.unshift(['single-stock', 'Tek tabaka türü']);
         return (
           <Paper
             key={p.id}
@@ -76,8 +84,8 @@ export function PlanComparison({ plans, selectedId, onSelect, horizontal = false
             data-testid={`plan-row-${i + 1}`}
           >
             <Stack direction="row" alignItems="center" spacing={0.5} sx={{ mb: 0.25 }}>
-              <Radio size="small" checked={selected} onChange={() => onSelect(p.id)} inputProps={{ 'aria-label': `Plan ${i + 1} seç` }} sx={{ p: 0.5 }} />
-              <Typography sx={{ fontWeight: 700, fontSize: '0.9rem' }}>Plan {i + 1}</Typography>
+              <Radio size="small" checked={selected} onChange={() => onSelect(p.id)} inputProps={{ 'aria-label': `${planName(plans, p.id)} seç` }} sx={{ p: 0.5 }} />
+              <Typography sx={{ fontWeight: 700, fontSize: '0.9rem' }}>{planName(plans, p.id)}</Typography>
               {i === 0 && <Chip size="small" color="primary" label="Önerilen" sx={{ height: 20, fontSize: '0.68rem' }} />}
               {!p.fulfilled && <Chip size="small" color="warning" label="Eksik" sx={{ height: 20, fontSize: '0.68rem' }} />}
             </Stack>

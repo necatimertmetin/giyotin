@@ -453,6 +453,23 @@ function buildPlan(ctx: Ctx, state: OuterState, prof: Profile): Plan {
   };
 }
 
+/**
+ * Sets of stock indices that together use one stock format per paper type (material key). Stock that no
+ * piece can be cut from is ignored; the number of combinations is capped to keep the search affordable.
+ */
+function singleStockCombos(ctx: Ctx, cap = 12): Array<Set<number>> {
+  const byMaterial = new Map<string, number[]>();
+  ctx.stocks.forEach((st) => {
+    const usable = ctx.orientations[st.index]!.some((o, i) => o.length > 0 && (ctx.initialRem[i] ?? 0) > 0);
+    if (!usable) return;
+    const key = ctx.input.stocks[st.index]!.materialKey;
+    byMaterial.set(key, [...(byMaterial.get(key) ?? []), st.index]);
+  });
+  let combos: number[][] = [[]];
+  for (const options of byMaterial.values()) combos = combos.flatMap((c) => options.map((j) => [...c, j]));
+  return combos.slice(0, cap).map((c) => new Set(c));
+}
+
 function planScore(ctx: Ctx, plan: Plan, prof: Profile): number {
   const cw = costWeightOf(ctx, prof);
   const material = plan.totals.stockArea - prof.offcutCredit * plan.totals.offcutArea;
@@ -572,9 +589,11 @@ export function optimize(input: OptimizationInput, options: OptimizeOptions = {}
     }
     ctx.rootRatio = Number.isFinite(ratio) ? Math.max(1, ratio * 0.9) : 1;
 
+    // One extra slot for the "single stock type" plans, searched after all profiles.
+    const slots = profiles.length + 1;
     profiles.forEach((prof, k) => {
       if (budget.stopped !== 'completed' && candidates.length > 0) return;
-      const sliceEnd = started + (totalMs * (k + 1)) / profiles.length;
+      const sliceEnd = started + (totalMs * (k + 1)) / slots;
       const sub: SearchBudget = { ...budget, deadline: sliceEnd };
       const start = restart(ctx, [], prof);
       const finished = runOuter(ctx, start, width, prof, sub);
@@ -585,6 +604,31 @@ export function optimize(input: OptimizationInput, options: OptimizeOptions = {}
       if (sub.stopped === 'cancelled') budget.stopped = 'cancelled';
       else if (sub.stopped === 'timeLimit' && now() > budget.deadline) budget.stopped = 'timeLimit';
     });
+
+    // Single stock type: every paper type is cut from one stock format only. Try each combination of
+    // (one stock per material) and keep the best of them as its own plan.
+    if (budget.stopped === 'completed' || budget.stopped === 'timeLimit') {
+      const combos = singleStockCombos(ctx);
+      const base = started + (totalMs * profiles.length) / slots;
+      const prof = PROFILES[0]!;
+      let best: { state: OuterState; score: number } | null = null;
+      combos.forEach((allowed, c) => {
+        if (budget.stopped === 'cancelled') return;
+        const restricted: Ctx = { ...ctx, orientations: ctx.orientations.map((o, j) => (allowed.has(j) ? o : o.map(() => []))) };
+        const sub: SearchBudget = { ...budget, stopped: 'completed', deadline: Math.max(now(), base) + (totalMs / slots) * ((c + 1) / combos.length) };
+        const top = runOuter(restricted, restart(restricted, [], prof), width, prof, sub)[0];
+        budget.nodes += sub.nodes;
+        if (sub.stopped === 'cancelled') budget.stopped = 'cancelled';
+        if (!top) return;
+        const score = finalScore(restricted, top);
+        if (!best || score < best.score) best = { state: top, score };
+      });
+      const found = best as { state: OuterState; score: number } | null;
+      if (found) {
+        const plan = buildPlan(ctx, found.state, prof);
+        candidates.push({ ...plan, id: 'plan-single-stock', label: 'single-stock', objective: { profile: 'single-stock', score: plan.objective.score } });
+      }
+    }
   }
 
   // Deduplicate equivalent plans, keep the profile-best ones, rank by the balanced objective.
@@ -592,7 +636,8 @@ export function optimize(input: OptimizationInput, options: OptimizeOptions = {}
   for (const plan of candidates) {
     const sig = planSignature(plan);
     const prev = unique.get(sig);
-    if (!prev || plan.objective.score < prev.objective.score) unique.set(sig, plan);
+    // On a tie the single-stock label wins: it tells the user something the other labels do not.
+    if (!prev || plan.objective.score < prev.objective.score || (plan.objective.profile === 'single-stock' && plan.objective.score === prev.objective.score)) unique.set(sig, plan);
   }
   // Rank the distinct candidates by the default objective, but always keep the best candidate for every
   // criterion the UI labels (fewest sheets, cheapest, least waste, most offcut, fewest cuts, least stock).
@@ -613,8 +658,17 @@ export function optimize(input: OptimizationInput, options: OptimizeOptions = {}
     const best = [...fulfilledFirst].sort((x, y) => key(x) - key(y) || x.objective.score - y.objective.score)[0];
     if (best && Number.isFinite(key(best))) keep.add(best);
   }
+  const single = fulfilledFirst.find((p) => p.objective.profile === 'single-stock');
+  if (single) keep.add(single);
   for (const plan of scored) if (keep.size < 6) keep.add(plan);
   const ranked = scored.filter((p) => keep.has(p)).slice(0, 6);
+  // The criteria winners and the single-stock plan are 7 at most; if the cut dropped the single-stock plan, swap it in.
+  if (single && !ranked.includes(single)) ranked[ranked.length - 1] = single;
+  // The single-stock plan is always "Plan 2"; the recommended plan stays first.
+  if (single) {
+    ranked.splice(ranked.indexOf(single), 1);
+    ranked.splice(Math.min(1, ranked.length), 0, single);
+  }
   const plans = ranked.map((plan, i) => ({ ...plan, id: `plan-${i + 1}`, label: plan.objective.profile }));
 
   // A plan with no sheets (nothing placeable) is still reported so the UI can show the issues.

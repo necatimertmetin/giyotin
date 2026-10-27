@@ -289,6 +289,20 @@ describe('alternatives', () => {
     const fewest = r.plans.reduce((m, p) => Math.min(m, p.totals.sheetCount), Infinity);
     expect(r.plans.some((p) => p.totals.sheetCount === fewest)).toBe(true);
   });
+
+  it('offers a plan that cuts every paper type from a single stock format', () => {
+    const inp = input(
+      [piece('a', 100, 100, 120), piece('b', 60, 90, 40)],
+      [stock('small', 210, 210, 60, { unitCost: 1 }), stock('big', 700, 1000, 6, { unitCost: 9 }), stock('mid', 500, 700, 10, { unitCost: 5 })],
+      { kerf: 3 },
+    );
+    const r = solve(inp);
+    const single = r.plans.find((p) => p.objective.profile === 'single-stock');
+    expect(single).toBeDefined();
+    expect(r.plans.indexOf(single!)).toBe(1);
+    expect(single!.fulfilled).toBe(true);
+    expect(Object.keys(single!.totals.sheetsByStock)).toHaveLength(1);
+  });
 });
 
 describe('determinism and cancellation', () => {
