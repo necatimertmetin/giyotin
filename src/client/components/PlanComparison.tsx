@@ -16,23 +16,23 @@ interface Props {
 type Criterion = 'molds' | 'sheets' | 'material' | 'cost' | 'waste' | 'offcut' | 'cuts';
 type Best = Record<Criterion, Set<string>>;
 
-/** "Plan 1", "Plan 2" … for ordinary plans (numbered without gaps); the single-stock plan is just "Tek Tabaka". */
-export function planName(plans: Plan[], id: string): string {
-  const plan = plans.find((p) => p.id === id);
-  if (plan?.objective.profile === 'single-stock') return 'Tek Tabaka';
-  return `Plan ${plans.filter((p) => p.objective.profile !== 'single-stock').findIndex((p) => p.id === id) + 1}`;
+const LAYOUT_NAME = ['', 'Tek Kalıp', 'İki Kalıp', 'Üç Kalıp'];
+
+/** Chip text for a plan tag: "cheapest" or "layouts-N" (its number of different cutting layouts). */
+export function tagLabel(tag: string): string {
+  if (tag === 'cheapest') return 'En ucuz kağıt maliyeti';
+  const k = Number(tag.replace('layouts-', ''));
+  return LAYOUT_NAME[k] ?? `${k} kalıp`;
 }
 
-/** A plan is named after what it is actually best at in this comparison, never after how it was found. */
-const BEST_LABELS: Array<[Criterion, string]> = [
-  ['molds', 'En az kalıp'],
-  ['sheets', 'En az tabaka'],
-  ['cost', 'En ucuz'],
-  ['material', 'En az sarf'],
-  ['waste', 'En az fire'],
-  ['offcut', 'En çok artık'],
-  ['cuts', 'En az kesim'],
-];
+/** The first plan is the recommended "Plan 1"; every other plan is named after what it is (its layout count, or the cheapest). */
+export function planName(plans: Plan[], id: string): string {
+  const i = plans.findIndex((p) => p.id === id);
+  if (i <= 0) return 'Plan 1';
+  const tags = plans[i]?.tags ?? [];
+  const layouts = tags.find((t) => t.startsWith('layouts-'));
+  return tagLabel(layouts ?? tags[0] ?? 'cheapest');
+}
 
 function bestOf(plans: Plan[]): Best {
   const pool = plans.some((p) => p.fulfilled) ? plans.filter((p) => p.fulfilled) : plans;
@@ -76,8 +76,7 @@ export function PlanComparison({ plans, selectedId, onSelect, horizontal = false
       {plans.map((p, i) => {
         const selected = p.id === selectedId;
         const isBest = (c: Criterion): boolean => multiple && best[c].has(p.id);
-        const tags: Array<[string, string]> = BEST_LABELS.filter(([c]) => isBest(c));
-        if (p.objective.profile === 'single-stock') tags.unshift(['single-stock', 'Tek tabaka türü']);
+        const tags = p.tags ?? [];
         return (
           <Paper
             key={p.id}
@@ -92,8 +91,7 @@ export function PlanComparison({ plans, selectedId, onSelect, horizontal = false
               {!p.fulfilled && <Chip size="small" color="warning" label="Eksik" sx={{ height: 20, fontSize: '0.68rem' }} />}
             </Stack>
             <Stack direction="row" spacing={0.5} useFlexGap flexWrap="wrap" sx={{ mb: 0.5, minHeight: 20 }}>
-              {tags.map(([c, label]) => <Chip key={c} size="small" color="success" variant="outlined" label={label} sx={{ height: 20, fontSize: '0.66rem', '& .MuiChip-label': { px: 0.75 } }} />)}
-              {tags.length === 0 && <Typography variant="caption" color="text.secondary">Alternatif</Typography>}
+              {tags.map((t) => <Chip key={t} size="small" color="success" variant="outlined" label={tagLabel(t)} sx={{ height: 20, fontSize: '0.66rem', '& .MuiChip-label': { px: 0.75 } }} />)}
             </Stack>
             <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(4, minmax(0, 1fr))', gap: 0.5 }}>
               <Cell label="Kalıp" value={fmtInt(p.sheets.length)} good={isBest('molds')} />

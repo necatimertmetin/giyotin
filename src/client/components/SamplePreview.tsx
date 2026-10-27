@@ -21,9 +21,9 @@ interface Sample {
  */
 function buildSample(lines: DraftLine[], stock: StockItemDto[], settings: CuttingSettings, wantedMaterial: string | null): Sample | string {
   const valid = lines.filter(isValid).map(toDto);
-  if (valid.length === 0) return 'Örnek tabaka için önce geçerli bir ürün satırı girin.';
+  if (valid.length === 0) return 'Örnek kalıp için önce geçerli bir ürün satırı girin.';
   const sheets = stock.filter((s) => s.kind === 'sheet' && s.status === 'active' && s.quantity > 0);
-  if (sheets.length === 0) return 'Örnek tabaka için envanterde kullanılabilir bir tabaka yok.';
+  if (sheets.length === 0) return 'Örnek kalıp için envanterde kullanılabilir bir tabaka yok.';
 
   const pool = wantedMaterial ? sheets.filter((s) => s.materialKey === wantedMaterial) : sheets;
   if (pool.length === 0) return 'Bu kağıt cinsi için envanterde kullanılabilir tabaka yok.';
@@ -59,7 +59,7 @@ function buildSample(lines: DraftLine[], stock: StockItemDto[], settings: Cuttin
     ],
   };
   const plan = optimize(input).plans[0];
-  if (!plan || plan.sheets.length === 0) return 'Hiçbir ürün bu örnek tabakaya sığmıyor.';
+  if (!plan || plan.sheets.length === 0) return 'Hiçbir ürün bu örnek kalıba sığmıyor.';
   return { input, plan, stockLabel: `${sheet.name} · ${fmtNum(sheet.width)} × ${fmtNum(sheet.height)} mm (stoktaki en büyük uygun tabaka)` };
 }
 
@@ -99,7 +99,7 @@ export function SamplePreview({ lines, stock, settings }: Props): ReactElement {
 
   const pieces = useMemo(() => (typeof sample === 'object' && sample ? buildPieceInfo(sample.input.pieces) : new Map()), [sample]);
 
-  if (sample === null) return <Paper sx={{ p: 3 }}><Typography color="text.secondary">Örnek tabaka hazırlanıyor…</Typography></Paper>;
+  if (sample === null) return <Paper sx={{ p: 3 }}><Typography color="text.secondary">Örnek kalıp hazırlanıyor…</Typography></Paper>;
   if (typeof sample === 'string') return <Alert severity="info">{sample}</Alert>;
 
   const sheet = sample.plan.sheets[0]!;
@@ -109,13 +109,13 @@ export function SamplePreview({ lines, stock, settings }: Props): ReactElement {
   return (
     <Paper sx={{ p: 2 }} data-testid="sample-preview">
       <Stack direction="row" justifyContent="space-between" alignItems="baseline" flexWrap="wrap" useFlexGap sx={{ mb: 1 }}>
-        <Typography sx={{ fontWeight: 700 }}>Örnek tabaka</Typography>
+        <Typography sx={{ fontWeight: 700 }}>Örnek kalıp</Typography>
         <Typography variant="caption" color="text.secondary">{sample.stockLabel}</Typography>
       </Stack>
       {materials.length > 1 && (
         <Box sx={{ mb: 1.5 }}>
           <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 0.5 }}>
-            Siparişinizde {materials.length} kağıt cinsi var; her cins ayrı tabakaya kesilir. Örneğini görmek için seçin:
+            Siparişinizde {materials.length} kağıt cinsi var; her cins ayrı kalıba kesilir. Örneğini görmek için seçin:
           </Typography>
           <ToggleButtonGroup exclusive size="small" value={activeMaterial} onChange={(_, v: string | null) => v && setMaterial(v)} data-testid="sample-materials">
             {materials.map((m) => <ToggleButton key={m.key} value={m.key} sx={{ px: 2 }}>{m.label}</ToggleButton>)}
@@ -134,7 +134,7 @@ export function SamplePreview({ lines, stock, settings }: Props): ReactElement {
           ) : (
             <Stack spacing={1.25}>
               <SelectionInfo selection={selection} pieces={pieces} kerf={settings.kerf} />
-              <Typography variant="subtitle2" sx={{ pt: 1 }}>Bu tabakadan çıkanlar</Typography>
+              <Typography variant="subtitle2" sx={{ pt: 1 }}>Bu kalıptan çıkanlar</Typography>
               {[...pieces.values()].filter((p) => counts.has(p.id)).map((p) => (
                 <Stack key={p.id} direction="row" justifyContent="space-between" alignItems="center">
                   <Typography variant="body2"><Box component="span" sx={{ display: 'inline-block', width: 12, height: 12, bgcolor: p.fill, border: `1px solid ${p.stroke}`, mr: 1 }} />{p.name} {fmtNum(p.width)}×{fmtNum(p.height)}</Typography>
@@ -151,7 +151,7 @@ export function SamplePreview({ lines, stock, settings }: Props): ReactElement {
         </Box>
       </Box>
       <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 1.5 }}>
-        Bu, siparişin bir tabakaya kesilmiş örneğidir ve ayarların etkisini gösterir; tüm sipariş için gerçek planı “Planı oluştur” hesaplar.
+        Bu, siparişin bir kalıba kesilmiş örneğidir ve ayarların etkisini gösterir; tüm sipariş için gerçek planı “Planı oluştur” hesaplar.
       </Typography>
     </Paper>
   );

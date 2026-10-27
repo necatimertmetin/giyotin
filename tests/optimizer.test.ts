@@ -309,36 +309,25 @@ describe('offcut reuse in later jobs', () => {
 });
 
 describe('alternatives', () => {
-  it('offers a plan that minimises the number of sheets even when smaller stock is cheaper per area', () => {
+  it('lists the recommended plan, the cheapest one and plans with 1 / 2 / 3 layouts (kalıp)', () => {
     const inp = input(
-      [piece('a', 100, 100, 120)],
-      [stock('small', 210, 210, 60, { unitCost: 1 }), stock('big', 700, 1000, 6, { unitCost: 9 })],
-      { kerf: 3 },
-    );
-    const r = solve(inp);
-    const counts = r.plans.map((p) => p.totals.sheetCount);
-    // 120 pieces of 100×100 need at least 3 big sheets; the plan list must contain a plan close to that.
-    expect(Math.min(...counts)).toBeLessThanOrEqual(4);
-    expect(r.plans.length).toBeLessThanOrEqual(6);
-    // Every plan in the list is valid and the fewest-sheets plan is never beaten by another listed plan.
-    const fewest = r.plans.reduce((m, p) => Math.min(m, p.totals.sheetCount), Infinity);
-    expect(r.plans.some((p) => p.totals.sheetCount === fewest)).toBe(true);
-  });
-
-  it('offers a plan that cuts every paper type from a single stock format', () => {
-    const inp = input(
-      [piece('a', 100, 100, 120), piece('b', 60, 90, 40)],
+      [piece('a', 100, 100, 120), piece('b', 60, 90, 40), piece('c', 150, 200, 25)],
       [stock('small', 210, 210, 60, { unitCost: 1 }), stock('big', 700, 1000, 6, { unitCost: 9 }), stock('mid', 500, 700, 10, { unitCost: 5 })],
       { kerf: 3 },
     );
     const r = solve(inp);
-    const single = r.plans.find((p) => p.objective.profile === 'single-stock');
-    expect(single).toBeDefined();
-    expect(r.plans.indexOf(single!)).toBe(1);
-    expect(single!.fulfilled).toBe(true);
-    expect(Object.keys(single!.totals.sheetsByStock)).toHaveLength(1);
-    expect(single!.sheets).toHaveLength(1); // one layout (kalıp), repeated
-    expect(validatePlan(single!, inp)).toEqual([]);
+    expect(r.plans.length).toBeLessThanOrEqual(5);
+    for (const p of r.plans) expect(validatePlan(p, inp)).toEqual([]);
+    const cheapest = r.plans.reduce((m, p) => Math.min(m, p.totals.cost ?? Infinity), Infinity);
+    expect(r.plans.find((p) => p.tags?.includes('cheapest'))!.totals.cost).toBe(cheapest);
+    const one = r.plans.find((p) => p.tags?.includes('layouts-1'));
+    expect(one).toBeDefined();
+    expect(one!.fulfilled).toBe(true);
+    expect(one!.sheets).toHaveLength(1);
+    expect(Object.keys(one!.totals.sheetsByStock)).toHaveLength(1);
+    // A plan tagged "layouts-N" really has N different layouts, and every listed plan covers the order.
+    for (const p of r.plans) for (const t of p.tags ?? []) if (t.startsWith('layouts-')) expect(p.sheets.length).toBe(Number(t.slice(8)));
+    expect(r.plans.every((p) => p.fulfilled)).toBe(true);
   });
 });
 

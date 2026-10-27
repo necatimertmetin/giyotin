@@ -216,6 +216,8 @@ export interface Plan {
   fulfilled: boolean;
   /** Pieces cut beyond the demanded quantity (pieceId → extra copies); only the single-layout plan has any. */
   overproduced?: Record<string, number>;
+  /** Why this plan is listed: 'cheapest' and/or 'layouts-N' (its number of different layouts). */
+  tags?: string[];
   objective: PlanObjective;
 }
 

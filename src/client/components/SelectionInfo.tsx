@@ -30,7 +30,7 @@ export function SelectionInfo({ selection, pieces, kerf }: Props): ReactElement 
           {info?.name ?? n.pieceId}
         </Typography>
         <Typography variant="body2">Kesilen ölçü: <b>{fmtDims(n.w, n.h)}</b></Typography>
-        {info && <Typography variant="body2">Sipariş ölçüsü: {fmtDims(info.width, info.height)}{n.rotated ? ' — bu tabakada 90° döndürülerek kesilir' : ''}</Typography>}
+        {info && <Typography variant="body2">Sipariş ölçüsü: {fmtDims(info.width, info.height)}{n.rotated ? ' — bu kalıpta 90° döndürülerek kesilir' : ''}</Typography>}
         <Typography variant="body2" color="text.secondary">Konum (sol-üst köşe): {fmtNum(n.x)} mm, {fmtNum(n.y)} mm</Typography>
         <Typography variant="body2" color="text.secondary">Alan: {fmtArea(n.w * n.h)}</Typography>
       </Stack>
@@ -47,7 +47,7 @@ export function SelectionInfo({ selection, pieces, kerf }: Props): ReactElement 
         {d.results.map((r) => (
           <Typography key={r} variant="body2" color="text.secondary">→ {r}</Typography>
         ))}
-        <Typography variant="caption" color="text.secondary">Kesim sırası tabakanın kesim ağacından (derinlik öncelikli) türetilir.</Typography>
+        <Typography variant="caption" color="text.secondary">Kesim sırası kalıbın kesim ağacından (derinlik öncelikli) türetilir.</Typography>
       </Stack>
     );
   }

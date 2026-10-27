@@ -46,7 +46,7 @@ export function CutStepper({ sheet, kerf, step, onStep }: Props): ReactElement {
   return (
     <Stack spacing={1.5} data-testid="cut-stepper">
       {total === 0 ? (
-        <Alert severity="info">Bu tabakada kesim gerekmiyor.</Alert>
+        <Alert severity="info">Bu kalıpta kesim gerekmiyor.</Alert>
       ) : (
         <>
           <Box>
@@ -67,7 +67,7 @@ export function CutStepper({ sheet, kerf, step, onStep }: Props): ReactElement {
           <Slider size="small" min={0} max={total} step={1} value={step} onChange={(_, v) => { setPlaying(false); onStep(v as number); }} aria-label="Kesim adımı" />
           {step === 0 && (
             <Alert severity="info" icon={false}>
-              {margin > 0 ? `Önce tabakanın dört kenarından ${fmtNum(margin)} mm kenar payını kesip atın. ` : ''}
+              {margin > 0 ? `Önce kağıdın dört kenarından ${fmtNum(margin)} mm kenar payını kesip atın. ` : ''}
               İlk kesimi görmek için “İleri”ye basın. Kesimler ağaçtaki sıraya göre numaralandırılmıştır: bir kesimle ayrılan parçaların her biri kendi kesimlerine geçmeden önce tamamlanır.
             </Alert>
           )}
@@ -81,7 +81,7 @@ export function CutStepper({ sheet, kerf, step, onStep }: Props): ReactElement {
             </Alert>
           )}
           {sheet.copies > 1 && (
-            <Alert severity="info" icon={false}>Bu desen aynı şekilde <b>{sheet.copies}</b> tabakada tekrarlanacak.</Alert>
+            <Alert severity="info" icon={false}>Bu kalıp aynı şekilde <b>{sheet.copies}</b> tabakada tekrarlanacak.</Alert>
           )}
           <Box ref={listRef} sx={{ maxHeight: 260, overflowY: 'auto', border: '1px solid', borderColor: 'divider', borderRadius: 1 }}>
             {cuts.map((c) => (
