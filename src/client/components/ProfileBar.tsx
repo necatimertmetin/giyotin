@@ -1,7 +1,7 @@
 import { Button, Chip, Paper, Stack, TextField, Typography } from '@mui/material';
 import CheckIcon from '@mui/icons-material/Check';
 import { useState, type ReactElement } from 'react';
-import { DEFAULT_SETTINGS, type CuttingSettings } from '../../engine';
+import { DEFAULT_SETTINGS, edgeMarginsOf, type CuttingSettings } from '../../engine';
 import type { SettingsProfileDto } from '../../shared/api';
 import { api } from '../api';
 import { useToast } from '../hooks';
@@ -15,7 +15,8 @@ interface Props {
 
 /** Only the settings the user can see take part in "is this the saved profile?". */
 const KEYS: Array<keyof CuttingSettings> = ['kerf', 'edgeMargin', 'minOffcutWidth', 'minOffcutHeight'];
-const same = (a: CuttingSettings, b: CuttingSettings): boolean => KEYS.every((k) => a[k] === b[k]);
+const same = (a: CuttingSettings, b: CuttingSettings): boolean =>
+  KEYS.every((k) => a[k] === b[k]) && JSON.stringify(edgeMarginsOf(a)) === JSON.stringify(edgeMarginsOf(b));
 
 /** Saved cutting-settings profiles: one click applies, the current values can be saved under a name. */
 export function ProfileBar({ settings, profiles, onApply, onChanged }: Props): ReactElement {
@@ -58,7 +59,7 @@ export function ProfileBar({ settings, profiles, onApply, onChanged }: Props): R
             color={active?.id === p.id ? 'primary' : 'default'}
             variant={active?.id === p.id ? 'filled' : 'outlined'}
             icon={active?.id === p.id ? <CheckIcon /> : undefined}
-            onClick={() => onApply({ ...settings, ...p.settings })}
+            onClick={() => onApply({ ...settings, edgeMargins: undefined, ...p.settings })}
             onDelete={
               p.id === 0
                 ? undefined

@@ -2,7 +2,7 @@ import { Box, Button, CircularProgress, IconButton, Paper, Stack, Tab, Tabs, Tog
 import AddIcon from '@mui/icons-material/Add';
 import RemoveIcon from '@mui/icons-material/Remove';
 import { useEffect, useState, type ReactElement, type ReactNode } from 'react';
-import type { CuttingSettings } from '../../engine';
+import { edgeMarginsOf, type CuttingSettings, type EdgeMargins } from '../../engine';
 import type { SettingsProfileDto, StockItemDto } from '../../shared/api';
 import { NumberField } from './common';
 import type { DraftLine } from './OrderEditor';
@@ -41,7 +41,13 @@ function Card({ n, title, hint, children }: { n: number; title: string; hint: st
 /** Settings on the left; on the right a live sample sheet and, after a run, the alternative plans. */
 export function SettingsStep({ settings, onChange, profiles, onProfilesChanged, lines, stock, running, onBack, onRun, onCancel, results, hasResult, planCount }: Props): ReactElement {
   const set = (patch: Partial<CuttingSettings>): void => onChange({ ...settings, ...patch });
-  const trimOn = settings.edgeMargin > 0;
+  const margins = edgeMarginsOf(settings);
+  const trimMode: 'off' | 'on' | 'edges' = settings.edgeMargins ? 'edges' : settings.edgeMargin > 0 ? 'on' : 'off';
+  const setEdge = (edge: keyof EdgeMargins, v: number | null): void => set({ edgeMargins: { ...margins, [edge]: Math.max(0, v ?? 0) } });
+  const setTrimMode = (v: 'off' | 'on' | 'edges'): void => {
+    if (v === 'edges') set({ edgeMargins: { ...margins, ...(trimMode === 'off' ? { top: 5, right: 5, bottom: 5, left: 5 } : {}) } });
+    else set({ edgeMargins: undefined, edgeMargin: v === 'on' ? (settings.edgeMargin > 0 ? settings.edgeMargin : 5) : 0 });
+  };
   const [tab, setTab] = useState<'sample' | 'plans'>('sample');
 
   useEffect(() => {
@@ -81,14 +87,25 @@ export function SettingsStep({ settings, onChange, profiles, onProfilesChanged, 
           </Card>
 
           <Card n={2} title="Tabaka kenarları" hint="Kenardan kırpılıp atılan şerit (fire sayılır).">
-            <MarginIllustration margin={settings.edgeMargin} />
+            <MarginIllustration margins={margins} />
             <Stack direction="row" spacing={1.5} alignItems="center" sx={{ mt: 1 }}>
-              <ToggleButtonGroup exclusive size="small" value={trimOn ? 'on' : 'off'} onChange={(_, v: string | null) => v && set({ edgeMargin: v === 'on' ? 5 : 0 })}>
-                <ToggleButton value="off" sx={{ px: 2 }} data-testid="trim-off">Kırpma yok</ToggleButton>
-                <ToggleButton value="on" sx={{ px: 2 }} data-testid="trim-on">Kırp</ToggleButton>
+              <ToggleButtonGroup exclusive size="small" value={trimMode} onChange={(_, v: 'off' | 'on' | 'edges' | null) => v && setTrimMode(v)}>
+                <ToggleButton value="off" sx={{ px: 1.5 }} data-testid="trim-off">Kırpma yok</ToggleButton>
+                <ToggleButton value="on" sx={{ px: 1.5 }} data-testid="trim-on">Her kenar</ToggleButton>
+                <ToggleButton value="edges" sx={{ px: 1.5 }} data-testid="trim-edges">Kenar kenar</ToggleButton>
               </ToggleButtonGroup>
-              {trimOn && <NumberField value={settings.edgeMargin} onChange={(v) => set({ edgeMargin: Math.max(0, v ?? 0) })} unit="mm" sx={{ width: 110 }} inputProps={{ 'aria-label': 'Kenar payı' }} />}
+              {trimMode === 'on' && <NumberField value={settings.edgeMargin} onChange={(v) => set({ edgeMargin: Math.max(0, v ?? 0) })} unit="mm" sx={{ width: 110 }} inputProps={{ 'aria-label': 'Kenar payı' }} />}
             </Stack>
+            {trimMode === 'edges' && (
+              <Box sx={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 1, mt: 1.5 }} data-testid="edge-margins">
+                {([['top', 'Üst'], ['right', 'Sağ'], ['bottom', 'Alt'], ['left', 'Sol']] as const).map(([edge, label]) => (
+                  <Stack key={edge} direction="row" spacing={1} alignItems="center">
+                    <Typography variant="body2" sx={{ width: 28 }}>{label}</Typography>
+                    <NumberField value={margins[edge]} onChange={(v) => setEdge(edge, v)} unit="mm" sx={{ width: 110 }} inputProps={{ 'aria-label': `${label} kenar payı`, 'data-testid': `edge-${edge}` }} />
+                  </Stack>
+                ))}
+              </Box>
+            )}
           </Card>
 
           <Card n={3} title="En küçük saklanacak artık" hint="Her kenarı bundan küçük kalanlar fire olur.">

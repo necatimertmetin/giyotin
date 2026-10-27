@@ -97,9 +97,12 @@ const clamp = (v: unknown, min: number, max: number, fallback: number): number =
 export function parseSettings(raw: unknown): CuttingSettings {
   const r = (raw ?? {}) as Partial<Record<keyof CuttingSettings, unknown>>;
   const d = DEFAULT_SETTINGS;
+  const em = typeof r.edgeMargins === 'object' && r.edgeMargins !== null ? (r.edgeMargins as Record<string, unknown>) : null;
+  const edgeMargin = clamp(r.edgeMargin, 0, 100, d.edgeMargin);
   return {
     kerf: clamp(r.kerf, 0, 50, d.kerf),
-    edgeMargin: clamp(r.edgeMargin, 0, 100, d.edgeMargin),
+    edgeMargin,
+    ...(em ? { edgeMargins: { top: clamp(em.top, 0, 100, edgeMargin), right: clamp(em.right, 0, 100, edgeMargin), bottom: clamp(em.bottom, 0, 100, edgeMargin), left: clamp(em.left, 0, 100, edgeMargin) } } : {}),
     minOffcutWidth: clamp(r.minOffcutWidth, 0, 5000, d.minOffcutWidth),
     minOffcutHeight: clamp(r.minOffcutHeight, 0, 5000, d.minOffcutHeight),
     maxRuntimeMs: Math.round(clamp(r.maxRuntimeMs, 500, 120000, d.maxRuntimeMs)),

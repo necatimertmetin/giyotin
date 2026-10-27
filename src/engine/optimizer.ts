@@ -15,6 +15,7 @@ import {
   type SheetPattern,
   type SheetSearchConfig,
 } from './sheetSearch';
+import { edgeMarginsOf } from './types';
 import type {
   CuttingSettings,
   OptimizationInput,
@@ -119,7 +120,7 @@ interface OuterState {
 
 function preflight(input: OptimizationInput): { issues: PreflightIssue[]; placeable: boolean[] } {
   const issues: PreflightIssue[] = [];
-  const m = input.settings.edgeMargin;
+  const m = edgeMarginsOf(input.settings);
   const placeable = input.pieces.map((piece) => {
     const valid = Number.isFinite(piece.width) && Number.isFinite(piece.height) && piece.width > 0 && piece.height > 0;
     if (!valid) {
@@ -144,7 +145,7 @@ function preflight(input: OptimizationInput): { issues: PreflightIssue[]; placea
       allowedOrientations(
         { w: piece.width, h: piece.height, allowRotation: piece.allowRotation, grain: piece.grain },
         s,
-      ).some((o) => toUnits(o.w) <= toUnits(s.width - 2 * m) && toUnits(o.h) <= toUnits(s.height - 2 * m)),
+      ).some((o) => toUnits(o.w) <= toUnits(s.width - m.left - m.right) && toUnits(o.h) <= toUnits(s.height - m.top - m.bottom)),
     );
     if (!fitsSomewhere) {
       issues.push({ pieceId: piece.id, kind: 'no-fit', message: `${piece.name}: larger than every eligible stock item` });
@@ -576,16 +577,16 @@ export function optimize(input: OptimizationInput, options: OptimizeOptions = {}
   const { issues, placeable } = preflight(input);
 
   const kerf = toUnits(settings.kerf);
-  const margin = toUnits(settings.edgeMargin);
+  const margin = edgeMarginsOf(settings);
   const minW = toUnits(settings.minOffcutWidth);
   const minH = toUnits(settings.minOffcutHeight);
 
   const stocks: StockCtx[] = input.stocks.map((s, index) => {
     const usable: Rect = {
-      x: margin,
-      y: margin,
-      w: toUnits(s.width) - 2 * margin,
-      h: toUnits(s.height) - 2 * margin,
+      x: toUnits(margin.left),
+      y: toUnits(margin.top),
+      w: toUnits(s.width - margin.left - margin.right),
+      h: toUnits(s.height - margin.top - margin.bottom),
     };
     return {
       index,

@@ -39,11 +39,21 @@ export interface StockSpec {
   kind: 'sheet' | 'offcut';
 }
 
+/** Trim removed from each edge of a stock item before cutting, mm. */
+export interface EdgeMargins {
+  top: number;
+  right: number;
+  bottom: number;
+  left: number;
+}
+
 export interface CuttingSettings {
   /** Blade width in mm. */
   kerf: number;
   /** Trim removed from every edge of every stock item before cutting, mm. */
   edgeMargin: number;
+  /** Per-edge trim; when present it replaces `edgeMargin`. */
+  edgeMargins?: EdgeMargins;
   /** A leftover rectangle is a reusable offcut only if it is at least this large (in either orientation). */
   minOffcutWidth: number;
   minOffcutHeight: number;
@@ -56,6 +66,10 @@ export interface CuttingSettings {
   /** Seed for the (deterministic) tie-breaking used by local improvement. */
   seed: number;
 }
+
+/** The trim of each edge: the per-edge values if set, otherwise `edgeMargin` on all four edges. */
+export const edgeMarginsOf = (s: Pick<CuttingSettings, 'edgeMargin' | 'edgeMargins'>): EdgeMargins =>
+  s.edgeMargins ?? { top: s.edgeMargin, right: s.edgeMargin, bottom: s.edgeMargin, left: s.edgeMargin };
 
 export const DEFAULT_SETTINGS: CuttingSettings = {
   kerf: 3,

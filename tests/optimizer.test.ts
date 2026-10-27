@@ -165,6 +165,19 @@ describe('kerf and margins', () => {
     expect(p.sheets[0]!.stats.trimArea).toBe(100 * 100 - 90 * 90);
   });
 
+  it('trims each edge by its own margin', () => {
+    const edgeMargins = { top: 0, right: 0, bottom: 20, left: 10 };
+    const tooBig = input([piece('a', 91, 100, 1, { allowRotation: false })], [stock('s', 100, 100, 1)], { edgeMargins });
+    expect(solve(tooBig).issues.map((i) => i.kind)).toContain('no-fit');
+    const inp = input([piece('a', 90, 80, 1, { allowRotation: false })], [stock('s', 100, 100, 1)], { edgeMargins });
+    const p = best(solve(inp).plans);
+    expect(p.fulfilled).toBe(true);
+    const placed = collectPieces(p.sheets[0]!.tree)[0]!;
+    expect([placed.x, placed.y]).toEqual([10, 0]);
+    expect(p.sheets[0]!.stats.trimArea).toBe(100 * 100 - 90 * 80);
+    expect(validatePlan(p, inp)).toEqual([]);
+  });
+
   it('supports non-integer ISO/US dimensions exactly', () => {
     const inp = input([piece('letter', 215.9, 279.4, 4)], [stock('s', 431.8, 558.8, 1)], { kerf: 0 });
     const p = best(solve(inp).plans);

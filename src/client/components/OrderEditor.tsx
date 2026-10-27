@@ -19,7 +19,7 @@ import ContentCopyIcon from '@mui/icons-material/ContentCopy';
 import DeleteIcon from '@mui/icons-material/DeleteOutline';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import { Fragment, useState, type ReactElement } from 'react';
-import { allowedOrientations, toUnits, type CuttingSettings } from '../../engine';
+import { allowedOrientations, edgeMarginsOf, toUnits, type CuttingSettings, type EdgeMargins } from '../../engine';
 import type { OrderLineDto, StockItemDto } from '../../shared/api';
 import { GRAIN_PIECE_LABEL } from '../labels';
 import { NumberField } from './common';
@@ -103,13 +103,13 @@ interface Props {
 }
 
 /** True when the piece cannot be cut from any eligible stock item. */
-function fitsNowhere(l: DraftLine, stock: StockItemDto[], margin: number): boolean {
+function fitsNowhere(l: DraftLine, stock: StockItemDto[], margin: EdgeMargins): boolean {
   if (!isValid(l)) return false;
   const usable = stock.filter((s) => s.status === 'active' && s.quantity > 0 && (l.materialKey === null || s.materialKey === l.materialKey));
   if (usable.length === 0) return true;
   return !usable.some((s) =>
     allowedOrientations({ w: toUnits(l.width!), h: toUnits(l.height!), allowRotation: l.allowRotation, grain: l.grain }, s).some(
-      (o) => o.w <= toUnits(s.width - 2 * margin) && o.h <= toUnits(s.height - 2 * margin),
+      (o) => o.w <= toUnits(s.width - margin.left - margin.right) && o.h <= toUnits(s.height - margin.top - margin.bottom),
     ),
   );
 }
@@ -137,7 +137,7 @@ export function OrderEditor({ lines, onChange, stock, materials, settings }: Pro
             {lines.map((l, idx) => {
               const err = lineErrors(l);
               const showErr = l.name !== '' || l.width !== null || l.height !== null || l.quantity !== null;
-              const nofit = fitsNowhere(l, stock, settings.edgeMargin);
+              const nofit = fitsNowhere(l, stock, edgeMarginsOf(settings));
               const expanded = open.has(l.key);
               return (
                 <Fragment key={l.key}>
