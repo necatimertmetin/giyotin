@@ -136,12 +136,34 @@ export const collectCuts = (tree: TreeNode): CutNode[] => {
   return out.sort((a, b) => a.sequence - b.sequence);
 };
 
-/** Assign 1-based depth-first sequence numbers in place; returns the number of cuts. */
+/**
+ * Assign 1-based sequence numbers in place; returns the number of cuts.
+ *
+ * The order is the one a shop floor wants: every cut of one direction that can be made is made before the paper
+ * is turned, so all the rows are cut first and then all the columns (and so on), instead of turning the paper
+ * for every small piece. A cut can only be made once the cut that created its region is done; within one
+ * direction the cuts go in reading order (top to bottom for rows, left to right for columns).
+ */
 export function numberCuts(tree: TreeNode): number {
+  if (tree.type !== 'cut') return 0;
   let seq = 0;
-  walk(tree, (n) => {
-    if (n.type === 'cut') n.sequence = ++seq;
-  });
+  let available: CutNode[] = [tree];
+  let direction: CutNode['direction'] = tree.direction;
+  while (available.length > 0) {
+    let batch = available.filter((c) => c.direction === direction);
+    if (batch.length === 0) {
+      direction = direction === 'vertical' ? 'horizontal' : 'vertical';
+      continue;
+    }
+    available = available.filter((c) => c.direction !== direction);
+    batch = batch.sort((a, b) =>
+      direction === 'horizontal' ? a.y + a.position - (b.y + b.position) || a.x - b.x : a.x + a.position - (b.x + b.position) || a.y - b.y,
+    );
+    for (const cut of batch) {
+      cut.sequence = ++seq;
+      for (const child of [cut.first, cut.second]) if (child?.type === 'cut') available.push(child);
+    }
+  }
   return seq;
 }
 

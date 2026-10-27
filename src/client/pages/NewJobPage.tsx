@@ -1,4 +1,4 @@
-import { Alert, Autocomplete, Box, Button, Paper, Stack, TextField, Typography } from '@mui/material';
+import { Alert, Autocomplete, Box, Button, CircularProgress, Paper, Stack, TextField, Typography } from '@mui/material';
 import AddIcon from '@mui/icons-material/Add';
 import SaveIcon from '@mui/icons-material/SaveOutlined';
 import DeleteIcon from '@mui/icons-material/DeleteOutline';
@@ -183,11 +183,19 @@ export function NewJobPage(): ReactElement {
           planCount={run?.result.plans.length ?? 0}
           results={
             run && plan ? (
-              <Box data-testid="results">
+              <Box data-testid="results" sx={{ position: 'relative' }}>
+                {running && (
+                  <Box sx={{ position: 'absolute', inset: 0, zIndex: 20, bgcolor: 'rgba(255,255,255,0.65)', display: 'flex', justifyContent: 'center', alignItems: 'flex-start', pt: 14, borderRadius: 1 }} data-testid="results-loading">
+                    <Paper elevation={4} sx={{ px: 3, py: 2, display: 'flex', gap: 1.5, alignItems: 'center', position: 'sticky', top: 120, height: 'fit-content' }}>
+                      <CircularProgress size={22} />
+                      <Typography sx={{ fontWeight: 600 }}>Planlar hesaplanıyor…</Typography>
+                    </Paper>
+                  </Box>
+                )}
                 <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5 }}>
                   Kerf {fmtNum(run.settings.kerf)} mm · kenar payı {marginText(run.settings)}{run.settings.bladeLength ? ` · bıçak ${fmtNum(run.settings.bladeLength)} mm` : ''} · hesaplama {fmtDuration(run.result.runtimeMs)}
                 </Typography>
-                {(outdated || running) && <Alert severity="info" sx={{ mb: 2 }}>{running ? 'Ayarlar değişti; planlar yeniden hesaplanıyor…' : 'Sipariş veya ayarlar değişti; gösterilen plan güncel değil.'}</Alert>}
+                {outdated && !running && <Alert severity="info" sx={{ mb: 2 }}>Sipariş veya ayarlar değişti; gösterilen plan güncel değil.</Alert>}
                 {run.result.issues.length > 0 && (
                   <Alert severity="warning" sx={{ mb: 2 }} data-testid="issues">
                     <b>Siparişte sorunlar var:</b>
@@ -208,7 +216,6 @@ export function NewJobPage(): ReactElement {
                     actions={
                       <Paper sx={{ p: 2, display: 'flex', gap: 1.5, flexWrap: 'wrap', alignItems: 'center' }}>
                         <Button variant="contained" onClick={() => setConfirmOpen(true)} disabled={plan.sheets.length === 0 || outdated || running || run.confirmedJobId !== null} data-testid="open-confirm">Bu planı onayla…</Button>
-                        <Button variant="outlined" color="secondary" onClick={() => navigate(`/plan/${run.id}?plan=${plan.id}`)} disabled={plan.sheets.length === 0} data-testid="open-plan">Tam sayfa aç</Button>
                         <Typography variant="body2" color="text.secondary">Onaylamadan önce stok değişmez.</Typography>
                       </Paper>
                     }

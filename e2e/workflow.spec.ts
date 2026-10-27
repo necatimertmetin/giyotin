@@ -57,7 +57,6 @@ test('order → plan → preview → confirm → offcut reuse', async ({ page })
   await fillLine(page, 0, 'Poster', '300', '300', '1');
   await page.getByTestId('run-optimizer').click();
   await expect(page.getByTestId('results')).toBeVisible();
-  await page.getByTestId('open-plan').click();
   await expect(page.getByTestId('sheet-svg')).toBeVisible();
   await expect(page.locator('[data-testid="sheet-svg"] rect[style*="cursor: pointer"]').first()).toBeVisible();
 
@@ -67,11 +66,10 @@ test('order → plan → preview → confirm → offcut reuse', async ({ page })
   await expect(page.getByTestId('selection-info')).toContainText('300');
 
   // Step-by-step mode follows the cut tree.
-  await page.getByTestId('tab-steps').click();
-  await expect(page.getByTestId('step-counter')).toContainText('Adım 0 /');
   await page.getByTestId('step-next').click();
   await expect(page.getByTestId('step-counter')).toContainText('Adım 1 /');
   await expect(page.getByTestId('step-description')).toContainText('Kesim #1');
+  await page.waitForTimeout(800);
   await page.screenshot({ path: `${SHOTS}/02-plan-steps.png`, fullPage: true });
 
   // 4. Confirm: stock is consumed, offcuts are approved.
