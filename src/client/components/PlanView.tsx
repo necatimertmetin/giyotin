@@ -90,7 +90,7 @@ export function PlanView({ plan, input, settings, meta, actions, stacked = false
               <Chip size="small" variant="outlined" label={`${fmtInt(sheet.stats.cuts)} kesim`} />
               <Chip size="small" variant="outlined" label={`Fire ${fmtArea(sheet.stats.wasteArea)}`} />
               <Chip size="small" variant="outlined" label={`Artık ${fmtArea(sheet.stats.offcutArea)}`} />
-              {sheet.copies > 1 && <Chip size="small" color="secondary" label={`Bu desen ${sheet.copies} tabakada tekrarlanır`} />}
+              {sheet.copies > 1 && <Chip size="small" color="secondary" label={`Bu kalıp ${sheet.copies} tabakada tekrarlanır`} />}
               <Box sx={{ flex: 1 }} />
               <LegendSwatch css="repeating-linear-gradient(45deg,#d7f0e4 0 4px,#2f855a 4px 5px)" label="Artık" />
               <LegendSwatch css="repeating-linear-gradient(45deg,#f3d9d6 0 4px,#b4463c 4px 5px)" label="Fire" />
@@ -111,14 +111,15 @@ export function PlanView({ plan, input, settings, meta, actions, stacked = false
                 <Stack spacing={2}>
                   <SelectionInfo selection={selection} pieces={pieces} kerf={settings.kerf} />
                   <Divider />
-                  <Typography variant="subtitle2">Ürünler (bu tabaka)</Typography>
+                  <Typography variant="subtitle2">Ürünler (bu kalıp)</Typography>
                   <Table size="small">
                     <TableHead>
                       <TableRow>
                         <TableCell>Kod</TableCell>
                         <TableCell>Ürün</TableCell>
-                        <TableCell align="right">Bu tabaka</TableCell>
-                        <TableCell align="right">Toplam</TableCell>
+                        <TableCell align="right">1 tabakada</TableCell>
+                        {sheet.copies > 1 && <TableCell align="right">Bu kalıpta (×{fmtInt(sheet.copies)})</TableCell>}
+                        <TableCell align="right">Tüm plan / sipariş</TableCell>
                       </TableRow>
                     </TableHead>
                     <TableBody>
@@ -129,7 +130,8 @@ export function PlanView({ plan, input, settings, meta, actions, stacked = false
                             {p.code}
                           </TableCell>
                           <TableCell>{p.name}<Typography variant="caption" display="block" color="text.secondary">{fmtNum(p.width)}×{fmtNum(p.height)} mm</Typography></TableCell>
-                          <TableCell align="right" sx={{ fontFamily: FONT_MONO }}>{fmtInt(sheetPieceCounts.get(p.id) ?? 0)}</TableCell>
+                          <TableCell align="right" sx={{ fontFamily: FONT_MONO }}>{sheetPieceCounts.get(p.id) ? fmtInt(sheetPieceCounts.get(p.id) ?? 0) : '—'}</TableCell>
+                          {sheet.copies > 1 && <TableCell align="right" sx={{ fontFamily: FONT_MONO }}>{sheetPieceCounts.get(p.id) ? fmtInt((sheetPieceCounts.get(p.id) ?? 0) * sheet.copies) : '—'}</TableCell>}
                           <TableCell align="right" sx={{ fontFamily: FONT_MONO }}>{fmtInt(plan.placed[p.id] ?? 0)} / {fmtInt(p.quantity)}</TableCell>
                         </TableRow>
                       ))}
@@ -141,7 +143,7 @@ export function PlanView({ plan, input, settings, meta, actions, stacked = false
               {tab === 'tree' && <CutTree tree={sheet.tree} pieces={pieces} />}
               {tab === 'offcuts' && (
                 <Stack spacing={1}>
-                  {offcuts.length === 0 && <Typography variant="body2" color="text.secondary">Bu tabakada yeniden kullanılabilir artık oluşmuyor.</Typography>}
+                  {offcuts.length === 0 && <Typography variant="body2" color="text.secondary">Bu kalıpta yeniden kullanılabilir artık oluşmuyor.</Typography>}
                   {offcuts.map((o, i) => (
                     <Paper key={i} sx={{ p: 1, cursor: 'pointer' }} onClick={() => setSelection({ kind: 'remnant', node: o })}>
                       <Typography sx={{ fontFamily: FONT_MONO, fontWeight: 700 }}>{fmtNum(o.w)} × {fmtNum(o.h)} mm</Typography>

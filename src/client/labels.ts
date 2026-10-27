@@ -14,7 +14,6 @@ export const PROFILE_LABEL: Record<string, string> = {
   'min-cost': 'En düşük maliyet',
   'max-offcut': 'En çok artık parça',
   'min-cuts': 'En az kesim',
-  'single-stock': 'Tek tabaka türü',
 };
 
 export const GRAIN_STOCK_LABEL = { none: 'Belirtilmedi', width: 'Genişlik yönünde', height: 'Yükseklik yönünde' } as const;

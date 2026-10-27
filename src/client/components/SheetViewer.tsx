@@ -186,7 +186,7 @@ export function SheetViewer({ sheet, pieces, selection, onSelect, step = null, h
           onPointerMove={onPointerMove}
           onPointerUp={onPointerUp}
           role="img"
-          aria-label={`Kesim planı: ${fmtNum(W)} × ${fmtNum(H)} mm tabaka`}
+          aria-label={`Kesim planı: ${fmtNum(W)} × ${fmtNum(H)} mm kalıp`}
           style={{ display: 'block', userSelect: 'none' }}
           data-testid={thumbnail ? "sheet-thumb" : "sheet-svg"}
         >

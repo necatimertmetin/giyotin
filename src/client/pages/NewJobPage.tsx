@@ -159,7 +159,7 @@ export function NewJobPage(): ReactElement {
 
   return (
     <>
-      <PageHeader title="Yeni Kesim İşi" subtitle="Siparişi girin, kesim ayarlarını örnek tabakada görerek belirleyin ve planları karşılaştırın. Önizleme stoğu değiştirmez; yalnızca onayladığınızda stok düşülür." />
+      <PageHeader title="Yeni Kesim İşi" subtitle="Siparişi girin, kesim ayarlarını örnek kalıpta görerek belirleyin ve planları karşılaştırın. Önizleme stoğu değiştirmez; yalnızca onayladığınızda stok düşülür." />
       <Stepper nonLinear activeStep={step} sx={{ mb: 3, maxWidth: 640 }}>
         {STEPS.map((label, i) => (
           <Step key={label} completed={i < step}>

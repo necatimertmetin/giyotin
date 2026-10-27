@@ -117,8 +117,8 @@ describe('preview vs confirmation', () => {
   });
 
   it('rolls the whole confirmation back when a later step fails', async () => {
-    const a = await json<StockItemDto>('POST', '/api/stock', stockBody({ name: 'Kağıt A', width: 300, height: 300, quantity: 2 }));
-    const b = await json<StockItemDto>('POST', '/api/stock', stockBody({ name: 'Kağıt B', width: 301, height: 301, quantity: 2 }));
+    const a = await json<StockItemDto>('POST', '/api/stock', stockBody({ name: 'Kağıt A', width: 300, height: 300, quantity: 1 }));
+    const b = await json<StockItemDto>('POST', '/api/stock', stockBody({ name: 'Kağıt B', width: 301, height: 301, quantity: 1 }));
     // 5 pieces of 140×140: two fit on a 300×300 sheet (kerf 3 → 2×2 = 4 per sheet) so both stocks get used.
     const run = await optimize([line({ name: 'Büyük', width: 140, height: 140, quantity: 8 })]);
     const plan = run.result.plans.find((p) => Object.keys(p.totals.sheetsByStock).length === 2) ?? run.result.plans[0]!;
@@ -128,8 +128,8 @@ describe('preview vs confirmation', () => {
     expect(await status('POST', `/api/runs/${run.id}/confirm`, { planId: plan.id, approvedOffcuts: [] })).toBe(500);
 
     const after = await json<StockItemDto[]>('GET', '/api/stock');
-    expect(after.find((x) => x.id === a.id)!.quantity).toBe(2);
-    expect(after.find((x) => x.id === b.id)!.quantity).toBe(2);
+    expect(after.find((x) => x.id === a.id)!.quantity).toBe(1);
+    expect(after.find((x) => x.id === b.id)!.quantity).toBe(1);
     expect(await json<unknown[]>('GET', '/api/jobs')).toHaveLength(0);
     db.exec('DROP TRIGGER fail_b');
     // Nothing was marked confirmed, so a retry succeeds.
