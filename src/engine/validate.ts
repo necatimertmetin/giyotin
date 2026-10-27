@@ -93,6 +93,11 @@ export function validatePlan(plan: Plan, input: OptimizationInput): string[] {
     }
     if (node.type === 'waste') return;
 
+    const cutLength = node.direction === 'vertical' ? node.h : node.w;
+    const blade = settings.bladeLength ?? 0;
+    if (blade > 0 && toUnits(cutLength) > toUnits(blade)) {
+      errors.push(`${tag}: cut #${node.sequence} is ${cutLength} mm long but the blade is only ${blade} mm`);
+    }
     const extent = node.direction === 'vertical' ? node.w : node.h;
     if (!(toUnits(node.position) > 0 && toUnits(node.position) < toUnits(extent))) {
       errors.push(`${tag}: cut position ${node.position} outside region ${rectOf(node)}`);

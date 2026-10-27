@@ -102,6 +102,7 @@ export function parseSettings(raw: unknown): CuttingSettings {
   return {
     kerf: clamp(r.kerf, 0, 50, d.kerf),
     edgeMargin,
+    ...(typeof r.bladeLength === 'number' && r.bladeLength > 0 ? { bladeLength: clamp(r.bladeLength, 0, 5000, 0) } : {}),
     ...(em ? { edgeMargins: { top: clamp(em.top, 0, 100, edgeMargin), right: clamp(em.right, 0, 100, edgeMargin), bottom: clamp(em.bottom, 0, 100, edgeMargin), left: clamp(em.left, 0, 100, edgeMargin) } } : {}),
     minOffcutWidth: clamp(r.minOffcutWidth, 0, 5000, d.minOffcutWidth),
     minOffcutHeight: clamp(r.minOffcutHeight, 0, 5000, d.minOffcutHeight),
