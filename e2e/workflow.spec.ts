@@ -40,7 +40,6 @@ test('order → plan → preview → confirm → offcut reuse', async ({ page })
   await page.goto('/yeni-is');
   await page.getByTestId('order-name').fill('E2E sipariş 1');
   await fillLine(page, 0, 'Poster', '300', '300', '1');
-  await page.getByTestId('next-step').click();
   await page.getByTestId('run-optimizer').click();
   await expect(page.getByTestId('results')).toBeVisible();
   await expect(page.getByTestId('fulfilled-banner').first()).toContainText('tamamen karşılanabiliyor');
@@ -56,7 +55,6 @@ test('order → plan → preview → confirm → offcut reuse', async ({ page })
   await page.goto('/yeni-is');
   await page.getByTestId('order-name').fill('E2E sipariş 1');
   await fillLine(page, 0, 'Poster', '300', '300', '1');
-  await page.getByTestId('next-step').click();
   await page.getByTestId('run-optimizer').click();
   await expect(page.getByTestId('results')).toBeVisible();
   await page.getByTestId('open-plan').click();
@@ -98,7 +96,6 @@ test('order → plan → preview → confirm → offcut reuse', async ({ page })
   await page.goto('/yeni-is');
   await page.getByTestId('order-name').fill('E2E sipariş 2');
   await fillLine(page, 0, 'Kart', '90', '50', '4');
-  await page.getByTestId('next-step').click();
   await page.getByTestId('run-optimizer').click();
   await expect(page.getByTestId('results')).toBeVisible();
   await expect(page.getByTestId('fulfilled-banner').first()).toContainText('tamamen karşılanabiliyor');
@@ -140,7 +137,6 @@ test('changing the kerf and re-running changes the plan; the sample sheet follow
   await page.goto('/yeni-is');
   await page.getByTestId('order-name').fill('Kerf testi');
   await fillLine(page, 0, 'Kutu', '100', '100', '30');
-  await page.getByTestId('next-step').click();
 
   // Plans are calculated automatically; the live sample sheet is drawn with the real engine and reacts to the kerf.
   await expect(page.getByTestId('results')).toBeVisible();
@@ -168,7 +164,6 @@ test('settings can be saved as a profile and applied again', async ({ page }) =>
   await page.goto('/yeni-is');
   await page.getByTestId('order-name').fill('Profil testi');
   await fillLine(page, 0, 'Kutu', '100', '100', '4');
-  await page.getByTestId('next-step').click();
 
   await page.getByTestId('setting-kerf').fill('2');
   await page.getByTestId('trim-on').click();
@@ -188,7 +183,6 @@ test('settings can be saved as a profile and applied again', async ({ page }) =>
   await page.reload();
   await page.getByTestId('order-name').fill('Profil testi');
   await fillLine(page, 0, 'Kutu', '100', '100', '4');
-  await page.getByTestId('next-step').click();
   await expect(page.getByTestId('profile-chip-Hassas kesim')).toBeVisible();
 });
 
