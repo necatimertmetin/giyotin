@@ -1,4 +1,4 @@
-import { Alert, Box, Chip, Paper, Stack, Table, TableBody, TableCell, TableHead, TableRow, Typography } from '@mui/material';
+import { Alert, Box, Paper, Stack, Typography } from '@mui/material';
 import CheckCircleIcon from '@mui/icons-material/CheckCircle';
 import WarningAmberIcon from '@mui/icons-material/WarningAmber';
 import type { ReactElement, ReactNode } from 'react';
@@ -23,36 +23,47 @@ interface Props {
   meta?: Pick<OptimizationResult, 'runtimeMs' | 'stoppedBy' | 'nodesExplored'>;
 }
 
+function Stat({ label, value, tone }: { label: string; value: ReactNode; tone?: 'good' | 'bad' | 'warn' }): ReactElement {
+  const color = tone === 'good' ? 'success.main' : tone === 'bad' ? 'error.main' : tone === 'warn' ? 'warning.main' : 'text.primary';
+  return (
+    <Box sx={{ minWidth: 0 }}>
+      <Typography sx={{ fontSize: '0.66rem', letterSpacing: '0.03em', textTransform: 'uppercase', color: 'text.secondary', fontWeight: 700 }} noWrap>{label}</Typography>
+      <Typography sx={{ fontFamily: FONT_MONO, fontWeight: 700, fontSize: '0.95rem', color, lineHeight: 1.3 }} noWrap>{value}</Typography>
+    </Box>
+  );
+}
+
 export function PlanStats({ plan, input, meta }: Props): ReactElement {
   const t = plan.totals;
   const stockById = new Map(input.stocks.map((s) => [s.id, s]));
+  const used = input.stocks.filter((s) => (t.sheetsByStock[s.id] ?? 0) > 0);
+  const extra = input.pieces.filter((p) => plan.overproduced?.[p.id]).map((p) => `${p.name} +${fmtInt(plan.overproduced?.[p.id] ?? 0)}`);
   return (
-    <Stack spacing={2} data-testid="plan-stats">
+    <Stack spacing={1} data-testid="plan-stats">
       {plan.fulfilled ? (
-        <Alert icon={<CheckCircleIcon />} severity="success" data-testid="fulfilled-banner">
-          Sipariş eldeki stokla <b>tamamen karşılanabiliyor</b>.
+        <Alert icon={<CheckCircleIcon />} severity="success" sx={{ py: 0 }} data-testid="fulfilled-banner">
+          Sipariş eldeki stokla <b>tamamen karşılanabiliyor</b>.{extra.length > 0 && <> Fazla üretim: {extra.join(', ')} adet.</>}
         </Alert>
       ) : (
-        <Alert icon={<WarningAmberIcon />} severity="warning" data-testid="fulfilled-banner">
+        <Alert icon={<WarningAmberIcon />} severity="warning" sx={{ py: 0 }} data-testid="fulfilled-banner">
           Sipariş <b>tamamen karşılanamıyor</b>. Karşılanamayan miktarlar aşağıda listelenmiştir.
         </Alert>
       )}
-      {plan.overproduced && (
-        <Alert severity="info" data-testid="overproduced-note">
-          Tek kalıp için fazla üretim: {input.pieces.filter((p) => plan.overproduced?.[p.id]).map((p) => `${p.name} +${fmtInt(plan.overproduced?.[p.id] ?? 0)}`).join(', ')} adet.
-        </Alert>
-      )}
-      <Box sx={{ display: 'grid', gridTemplateColumns: { xs: 'repeat(2, 1fr)', md: 'repeat(4, 1fr)' }, gap: 1.5 }}>
-        <Metric label="Kalıp sayısı" value={fmtInt(plan.sheets.length)} hint="farklı kesim düzeni" />
-        <Metric label="Kullanılan tabaka" value={fmtInt(t.sheetCount)} hint={fmtArea(t.stockArea)} />
-        <Metric label="Malzeme kullanımı" value={fmtPercent(t.utilization)} hint="bitmiş parça / sarf edilen stok" tone={t.utilization >= 0.85 ? 'good' : t.utilization < 0.7 ? 'warn' : undefined} />
-        <Metric label="Bitmiş parça alanı" value={fmtArea(t.pieceArea)} />
-        <Metric label="Kesim sayısı" value={fmtInt(t.cuts)} />
-        <Metric label="Bıçak payı kaybı" value={fmtArea(t.kerfArea)} hint="kerf" />
-        <Metric label="Kullanılamaz fire" value={fmtArea(t.wasteArea)} hint="kenar payı dahil" tone="bad" />
-        <Metric label="Yeniden kullanılabilir artık" value={fmtArea(t.offcutArea)} tone="good" />
-        <Metric label="Tahmini malzeme maliyeti" value={t.cost === null ? '—' : fmtMoney(t.cost)} hint={t.cost === null ? 'maliyet bilgisi girilmemiş' : undefined} />
-      </Box>
+      <Paper sx={{ p: 1.5 }}>
+        <Box sx={{ display: 'grid', gridTemplateColumns: { xs: 'repeat(2, 1fr)', sm: 'repeat(4, 1fr)' }, gap: 1.25 }}>
+          <Stat label="Kalıp" value={fmtInt(plan.sheets.length)} />
+          <Stat label="Tabaka" value={`${fmtInt(t.sheetCount)} · ${fmtArea(t.stockArea)}`} />
+          <Stat label="Kullanım" value={fmtPercent(t.utilization)} tone={t.utilization >= 0.85 ? 'good' : t.utilization < 0.7 ? 'warn' : undefined} />
+          <Stat label="Maliyet" value={t.cost === null ? '—' : fmtMoney(t.cost)} />
+          <Stat label="Kesim" value={fmtInt(t.cuts)} />
+          <Stat label="Fire" value={fmtArea(t.wasteArea)} tone="bad" />
+          <Stat label="Artık" value={fmtArea(t.offcutArea)} tone="good" />
+          <Stat label="Bıçak payı" value={fmtArea(t.kerfArea)} />
+        </Box>
+        <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 1 }}>
+          {used.map((s) => `${s.name} · ${fmtNum(s.width)}×${fmtNum(s.height)} mm${s.kind === 'offcut' ? ' (artık)' : ''}: ${fmtInt(t.sheetsByStock[s.id] ?? 0)} kullanıldı, ${fmtInt((stockById.get(s.id)?.quantity ?? 0) - (t.sheetsByStock[s.id] ?? 0))} kaldı`).join(' · ')}
+        </Typography>
+      </Paper>
 
       {plan.unfulfilled.length > 0 && (
         <Paper sx={{ p: 1.5, borderColor: 'warning.main' }}>
@@ -65,41 +76,10 @@ export function PlanStats({ plan, input, meta }: Props): ReactElement {
         </Paper>
       )}
 
-      <Paper sx={{ overflow: 'auto' }}>
-        <Table size="small">
-          <TableHead>
-            <TableRow>
-              <TableCell>Stok</TableCell>
-              <TableCell align="right">Kullanılan</TableCell>
-              <TableCell align="right">Kalan envanter</TableCell>
-            </TableRow>
-          </TableHead>
-          <TableBody>
-            {input.stocks.map((s) => {
-              const used = t.sheetsByStock[s.id] ?? 0;
-              return (
-                <TableRow key={s.id} selected={used > 0}>
-                  <TableCell>
-                    {s.name} · {fmtNum(s.width)}×{fmtNum(s.height)} mm {s.kind === 'offcut' && <Chip size="small" label="artık" sx={{ ml: 0.5 }} />}
-                  </TableCell>
-                  <TableCell align="right" sx={{ fontFamily: FONT_MONO }}>{fmtInt(used)}</TableCell>
-                  <TableCell align="right" sx={{ fontFamily: FONT_MONO }}>{fmtInt((stockById.get(s.id)?.quantity ?? 0) - used)}</TableCell>
-                </TableRow>
-              );
-            })}
-          </TableBody>
-        </Table>
-      </Paper>
-
-      <Alert severity="info" icon={false} data-testid="heuristic-note">
-        Bu plan, arama bütçesi içinde bulunan <b>en iyi plandır</b>; sezgisel (heuristik) bir yöntemle üretildiği için matematiksel olarak en iyi olduğu <b>kanıtlanmış değildir</b>.
-        {meta && (
-          <>
-            {' '}Çalışma süresi {fmtDuration(meta.runtimeMs)}, {fmtInt(meta.nodesExplored)} durum incelendi
-            {meta.stoppedBy === 'timeLimit' ? ' — süre sınırına ulaşıldı, sonuç eksik arama ile üretildi.' : '.'}
-          </>
-        )}
-      </Alert>
+      <Typography variant="caption" color="text.secondary" data-testid="heuristic-note">
+        Sezgisel yöntemle bulundu; en iyi olduğu kanıtlanmış değildir.
+        {meta && ` ${fmtDuration(meta.runtimeMs)}, ${fmtInt(meta.nodesExplored)} durum${meta.stoppedBy === 'timeLimit' ? ' — süre sınırına ulaşıldı, arama eksik kaldı.' : '.'}`}
+      </Typography>
     </Stack>
   );
 }
