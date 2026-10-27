@@ -187,6 +187,18 @@ describe('kerf and margins', () => {
     expect(r.plans[0]!.fulfilled).toBe(false);
   });
 
+  it('numbers the cuts so the paper is turned as rarely as possible', () => {
+    const inp = input([piece('a', 100, 150, 16), piece('b', 175, 123, 28), piece('c', 123, 175, 4)], [stock('s', 841, 1189, 4)], { kerf: 3 });
+    const p = best(solve(inp).plans);
+    expect(validatePlan(p, inp)).toEqual([]);
+    for (const sh of p.sheets) {
+      const dirs = collectCuts(sh.tree).map((c) => c.direction);
+      const turns = dirs.filter((d, i) => i > 0 && d !== dirs[i - 1]).length;
+      // A guillotine layout of this size has a handful of levels; depth-first numbering would turn the paper dozens of times.
+      expect(turns).toBeLessThanOrEqual(8);
+    }
+  });
+
   it('trims each edge by its own margin', () => {
     const edgeMargins = { top: 0, right: 0, bottom: 20, left: 10 };
     const tooBig = input([piece('a', 91, 100, 1, { allowRotation: false })], [stock('s', 100, 100, 1)], { edgeMargins });

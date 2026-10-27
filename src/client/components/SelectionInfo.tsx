@@ -47,7 +47,7 @@ export function SelectionInfo({ selection, pieces, kerf }: Props): ReactElement 
         {d.results.map((r) => (
           <Typography key={r} variant="body2" color="text.secondary">→ {r}</Typography>
         ))}
-        <Typography variant="caption" color="text.secondary">Kesim sırası kalıbın kesim ağacından (derinlik öncelikli) türetilir.</Typography>
+        <Typography variant="caption" color="text.secondary">Kesim sırası: önce bir yöndeki tüm kesimler yapılır, sonra kağıt çevrilip diğer yöne geçilir.</Typography>
       </Stack>
     );
   }

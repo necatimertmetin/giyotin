@@ -1,9 +1,9 @@
 import { Box, Chip, Divider, Paper, Stack, Tab, Table, TableBody, TableCell, TableHead, TableRow, Tabs, Typography } from '@mui/material';
 import { useEffect, useMemo, useState, type ReactElement, type ReactNode } from 'react';
-import { collectPieces, collectRemnants, type CuttingSettings, type OptimizationInput, type OptimizationResult, type Plan } from '../../engine';
+import { collectPieces, type CuttingSettings, type OptimizationInput, type OptimizationResult, type Plan } from '../../engine';
 import { FONT_MONO } from '../theme';
 import { fmtArea, fmtInt, fmtNum, fmtPercent } from '../format';
-import { CutStepper } from './CutStepper';
+import { CutCaption, CutPlayer } from './CutPlayer';
 import { PlanStats } from './PlanStats';
 import { SelectionInfo } from './SelectionInfo';
 import { SheetViewer } from './SheetViewer';
@@ -21,20 +21,17 @@ interface Props {
   stacked?: boolean;
 }
 
-type PanelTab = 'info' | 'steps' | 'offcuts';
-
-/** Cutting plan detail: interactive sheet viewer, step-by-step mode, cut tree, offcuts and totals. */
+/** Cutting plan detail: interactive sheet viewer with a cut animation, the product counts and totals. */
 export function PlanView({ plan, input, settings, meta, actions, stacked = false }: Props): ReactElement {
   const pieces = useMemo(() => buildPieceInfo(input.pieces), [input.pieces]);
   const [sheetIndex, setSheetIndex] = useState(0);
-  const [tab, setTab] = useState<PanelTab>('info');
   const [selection, setSelection] = useState<Selection | null>(null);
-  const [step, setStep] = useState(0);
+  const [step, setStep] = useState<number | null>(null);
 
   useEffect(() => {
     setSheetIndex(0);
     setSelection(null);
-    setStep(0);
+    setStep(null);
   }, [plan]);
 
   const sheet = plan.sheets[sheetIndex] ?? plan.sheets[0];
@@ -53,9 +50,6 @@ export function PlanView({ plan, input, settings, meta, actions, stacked = false
     );
   }
 
-  const offcuts = collectRemnants(sheet.tree).filter((n) => n.type === 'offcut');
-  const stepMode = tab === 'steps';
-
   return (
     <Stack spacing={2}>
       {/* In the narrow side-by-side layout the cutting view comes first, the totals after it. */}
@@ -68,7 +62,7 @@ export function PlanView({ plan, input, settings, meta, actions, stacked = false
           onChange={(_, v: number) => {
             setSheetIndex(v);
             setSelection(null);
-            setStep(0);
+            setStep(null);
           }}
           variant="scrollable"
           scrollButtons="auto"
@@ -82,7 +76,8 @@ export function PlanView({ plan, input, settings, meta, actions, stacked = false
 
         <Box sx={{ p: 2, display: 'grid', gridTemplateColumns: stacked ? '1fr' : { xs: '1fr', lg: 'minmax(0, 1fr) 360px' }, gap: 2 }}>
           <Box sx={{ minWidth: 0 }}>
-            <SheetViewer sheet={sheet} pieces={pieces} selection={selection} onSelect={setSelection} step={stepMode ? step : null} />
+            <SheetViewer sheet={sheet} pieces={pieces} selection={selection} onSelect={setSelection} step={step} overlay={<CutPlayer sheet={sheet} step={step} onStep={setStep} />} />
+            <CutCaption sheet={sheet} kerf={settings.kerf} step={step} />
             <Stack direction="row" spacing={1.5} flexWrap="wrap" useFlexGap sx={{ mt: 1.5 }} alignItems="center">
               <Chip size="small" label={`Kullanım ${fmtPercent(sheet.stats.pieceArea / sheet.stats.sheetArea)}`} color="primary" />
               <Chip size="small" variant="outlined" label={`${fmtInt(sheet.stats.pieceCount)} parça`} />
@@ -99,62 +94,36 @@ export function PlanView({ plan, input, settings, meta, actions, stacked = false
           </Box>
 
           <Box sx={{ minWidth: 0 }}>
-            <Tabs value={tab} onChange={(_, v: PanelTab) => setTab(v)} variant="fullWidth" sx={{ minHeight: 36, borderBottom: 1, borderColor: 'divider', '& .MuiTab-root': { minHeight: 36, py: 0.5 } }}>
-              <Tab value="info" label="Ayrıntı" data-testid="tab-info" />
-              <Tab value="steps" label="Adımlar" data-testid="tab-steps" />
-              <Tab value="offcuts" label="Artık" data-testid="tab-offcuts" />
-            </Tabs>
-            <Box sx={{ pt: 2 }}>
-              {tab === 'info' && (
-                <Stack spacing={2}>
-                  <SelectionInfo selection={selection} pieces={pieces} kerf={settings.kerf} />
-                  <Divider />
-                  <Typography variant="subtitle2">Ürünler (bu kalıp)</Typography>
-                  <Table size="small">
-                    <TableHead>
-                      <TableRow>
-                        <TableCell>Kod</TableCell>
-                        <TableCell>Ürün</TableCell>
-                        <TableCell align="right">1 tabakada</TableCell>
-                        {sheet.copies > 1 && <TableCell align="right">Bu kalıpta (×{fmtInt(sheet.copies)})</TableCell>}
-                        <TableCell align="right">Tüm plan / sipariş</TableCell>
-                      </TableRow>
-                    </TableHead>
-                    <TableBody>
-                      {[...pieces.values()].map((p) => (
-                        <TableRow key={p.id}>
-                          <TableCell sx={{ fontFamily: FONT_MONO }}>
-                            <Box component="span" sx={{ display: 'inline-block', width: 12, height: 12, bgcolor: p.fill, border: `1px solid ${p.stroke}`, mr: 0.75, verticalAlign: -1 }} />
-                            {p.code}
-                          </TableCell>
-                          <TableCell>{p.name}<Typography variant="caption" display="block" color="text.secondary">{fmtNum(p.width)}×{fmtNum(p.height)} mm</Typography></TableCell>
-                          <TableCell align="right" sx={{ fontFamily: FONT_MONO }}>{sheetPieceCounts.get(p.id) ? fmtInt(sheetPieceCounts.get(p.id) ?? 0) : '—'}</TableCell>
-                          {sheet.copies > 1 && <TableCell align="right" sx={{ fontFamily: FONT_MONO }}>{sheetPieceCounts.get(p.id) ? fmtInt((sheetPieceCounts.get(p.id) ?? 0) * sheet.copies) : '—'}</TableCell>}
-                          <TableCell align="right" sx={{ fontFamily: FONT_MONO }}>{fmtInt(plan.placed[p.id] ?? 0)} / {fmtInt(p.quantity)}</TableCell>
-                        </TableRow>
-                      ))}
-                    </TableBody>
-                  </Table>
-                </Stack>
-              )}
-              {tab === 'steps' && <CutStepper sheet={sheet} kerf={settings.kerf} step={step} onStep={setStep} />}
-              {tab === 'offcuts' && (
-                <Stack spacing={1}>
-                  {offcuts.length === 0 && <Typography variant="body2" color="text.secondary">Bu kalıpta yeniden kullanılabilir artık oluşmuyor.</Typography>}
-                  {offcuts.map((o, i) => (
-                    <Paper key={i} sx={{ p: 1, cursor: 'pointer' }} onClick={() => setSelection({ kind: 'remnant', node: o })}>
-                      <Typography sx={{ fontFamily: FONT_MONO, fontWeight: 700 }}>{fmtNum(o.w)} × {fmtNum(o.h)} mm</Typography>
-                      <Typography variant="caption" color="text.secondary">
-                        {fmtArea(o.w * o.h)} · konum {fmtNum(o.x)}, {fmtNum(o.y)}{sheet.copies > 1 ? ` · ×${sheet.copies} tabaka` : ''}
-                      </Typography>
-                    </Paper>
+            <Stack spacing={2}>
+              <SelectionInfo selection={selection} pieces={pieces} kerf={settings.kerf} />
+              <Divider />
+              <Typography variant="subtitle2">Ürünler (bu kalıp)</Typography>
+              <Table size="small">
+                <TableHead>
+                  <TableRow>
+                    <TableCell>Kod</TableCell>
+                    <TableCell>Ürün</TableCell>
+                    <TableCell align="right">1 tabakada</TableCell>
+                    {sheet.copies > 1 && <TableCell align="right">Bu kalıpta (×{fmtInt(sheet.copies)})</TableCell>}
+                    <TableCell align="right">Tüm plan / sipariş</TableCell>
+                  </TableRow>
+                </TableHead>
+                <TableBody>
+                  {[...pieces.values()].map((p) => (
+                    <TableRow key={p.id}>
+                      <TableCell sx={{ fontFamily: FONT_MONO }}>
+                        <Box component="span" sx={{ display: 'inline-block', width: 12, height: 12, bgcolor: p.fill, border: `1px solid ${p.stroke}`, mr: 0.75, verticalAlign: -1 }} />
+                        {p.code}
+                      </TableCell>
+                      <TableCell>{p.name}<Typography variant="caption" display="block" color="text.secondary">{fmtNum(p.width)}×{fmtNum(p.height)} mm</Typography></TableCell>
+                      <TableCell align="right" sx={{ fontFamily: FONT_MONO }}>{sheetPieceCounts.get(p.id) ? fmtInt(sheetPieceCounts.get(p.id) ?? 0) : '—'}</TableCell>
+                      {sheet.copies > 1 && <TableCell align="right" sx={{ fontFamily: FONT_MONO }}>{sheetPieceCounts.get(p.id) ? fmtInt((sheetPieceCounts.get(p.id) ?? 0) * sheet.copies) : '—'}</TableCell>}
+                      <TableCell align="right" sx={{ fontFamily: FONT_MONO }}>{fmtInt(plan.placed[p.id] ?? 0)} / {fmtInt(p.quantity)}</TableCell>
+                    </TableRow>
                   ))}
-                  <Typography variant="caption" color="text.secondary">
-                    Artıklar yalnızca kesim ağacının gerçek dikdörtgen yapraklarıdır (min. {fmtNum(settings.minOffcutWidth)}×{fmtNum(settings.minOffcutHeight)} mm).
-                  </Typography>
-                </Stack>
-              )}
-            </Box>
+                </TableBody>
+              </Table>
+            </Stack>
           </Box>
         </Box>
       </Paper>

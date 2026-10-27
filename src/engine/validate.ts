@@ -125,15 +125,14 @@ export function validatePlan(plan: Plan, input: OptimizationInput): string[] {
     seqs.forEach((s, i) => {
       if (s !== i + 1) errors.push(`${tag}: cut sequence is not 1..n`);
     });
-    const order: number[] = [];
-    const visit = (n: TreeNode): void => {
+    // A cut is made after the cut that created its region.
+    const visit = (n: TreeNode, parent: number): void => {
       if (n.type !== 'cut') return;
-      order.push(n.sequence);
-      visit(n.first);
-      if (n.second) visit(n.second);
+      if (n.sequence <= parent) errors.push(`${tag}: cut #${n.sequence} comes before the cut that creates its region`);
+      visit(n.first, n.sequence);
+      if (n.second) visit(n.second, n.sequence);
     };
-    visit(sheet.tree);
-    if (order.some((s, i) => s !== i + 1)) errors.push(`${tag}: cuts are not numbered depth-first`);
+    visit(sheet.tree, 0);
   }
 
   function checkOverlap(sheet: SheetPlan, tag: string): void {
