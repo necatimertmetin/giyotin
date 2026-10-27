@@ -56,26 +56,28 @@ export function CutPlayer({ sheet, step, onStep }: Props): ReactElement | null {
   };
 
   return (
-    <Paper elevation={3} sx={{ p: 1, width: 320 }} data-testid="cut-stepper" onPointerDown={(e) => e.stopPropagation()}>
-      <Stack direction="row" spacing={0.75} alignItems="center">
+    <Paper elevation={3} sx={{ p: 1, width: 104 }} data-testid="cut-stepper" onPointerDown={(e) => e.stopPropagation()}>
+      <Stack spacing={0.75} alignItems="stretch">
         <Button
           variant="contained"
           color={playing ? 'warning' : 'success'}
           startIcon={playing ? <PauseIcon /> : <PlayArrowIcon />}
           onClick={play}
-          sx={{ minWidth: 118, fontWeight: 700 }}
+          sx={{ fontWeight: 700, px: 1 }}
           data-testid="step-play"
         >
           {playing ? 'Duraklat' : finished ? 'Tekrar' : 'Oynat'}
         </Button>
-        <Tooltip title="Geri"><span><IconButton size="small" aria-label="Geri" disabled={step === null || step === 0} onClick={() => go(at - 1)}><NavigateBeforeIcon /></IconButton></span></Tooltip>
-        <Tooltip title="İleri"><span><IconButton size="small" aria-label="İleri" disabled={finished} onClick={() => go(at + 1)} data-testid="step-next"><NavigateNextIcon /></IconButton></span></Tooltip>
-        <Tooltip title="Bitmiş kalıbı göster"><span><IconButton size="small" aria-label="Sıfırla" disabled={step === null} onClick={() => { setPlaying(false); onStep(null); }}><ReplayIcon /></IconButton></span></Tooltip>
-        <Typography variant="caption" sx={{ ml: 'auto !important', whiteSpace: 'nowrap' }} data-testid="step-counter">
+        <Stack direction="row" justifyContent="space-between">
+          <Tooltip title="Geri"><span><IconButton size="small" aria-label="Geri" disabled={step === null || step === 0} onClick={() => go(at - 1)}><NavigateBeforeIcon /></IconButton></span></Tooltip>
+          <Tooltip title="İleri"><span><IconButton size="small" aria-label="İleri" disabled={finished} onClick={() => go(at + 1)} data-testid="step-next"><NavigateNextIcon /></IconButton></span></Tooltip>
+        </Stack>
+        <Button size="small" variant="outlined" color="inherit" startIcon={<ReplayIcon />} disabled={step === null} onClick={() => { setPlaying(false); onStep(null); }} sx={{ px: 1 }}>Sıfırla</Button>
+        <Typography variant="caption" align="center" sx={{ whiteSpace: 'nowrap' }} data-testid="step-counter">
           {step === null ? `${total} kesim` : `Adım ${step} / ${total}`}
         </Typography>
+        {step !== null && <LinearProgress variant="determinate" value={(at / total) * 100} sx={{ height: 4, borderRadius: 2 }} />}
       </Stack>
-      {step !== null && <LinearProgress variant="determinate" value={(at / total) * 100} sx={{ height: 4, borderRadius: 2, mt: 0.75 }} />}
     </Paper>
   );
 }
