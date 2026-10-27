@@ -139,29 +139,47 @@ export const collectCuts = (tree: TreeNode): CutNode[] => {
 /**
  * Assign 1-based sequence numbers in place; returns the number of cuts.
  *
- * The order is the one a shop floor wants: every cut of one direction that can be made is made before the paper
- * is turned, so all the rows are cut first and then all the columns (and so on), instead of turning the paper
- * for every small piece. A cut can only be made once the cut that created its region is done; within one
- * direction the cuts go in reading order (top to bottom for rows, left to right for columns).
+ * The order is the one a shop floor wants. A "run" is the cuts of one direction that follow each other in the same
+ * strip (all the cuts that divide that strip, parent before child). Runs are made level by level: first the runs
+ * that cut the sheet, then the runs that cut the resulting strips, and so on, and within a level all runs of one
+ * direction are made before the paper is turned. So cuts of the same kind stay together and nothing of another
+ * kind comes in between; a cut always comes after the cut that created its region.
  */
 export function numberCuts(tree: TreeNode): number {
-  if (tree.type !== 'cut') return 0;
-  let seq = 0;
-  let available: CutNode[] = [tree];
-  let direction: CutNode['direction'] = tree.direction;
-  while (available.length > 0) {
-    let batch = available.filter((c) => c.direction === direction);
-    if (batch.length === 0) {
-      direction = direction === 'vertical' ? 'horizontal' : 'vertical';
-      continue;
+  interface Run {
+    level: number;
+    direction: CutNode['direction'];
+    top: CutNode;
+    cuts: CutNode[];
+  }
+  const runs: Run[] = [];
+  const visit = (node: TreeNode, parent: CutNode | null, run: Run | null): void => {
+    if (node.type !== 'cut') return;
+    let current = run;
+    if (!current || !parent || parent.direction !== node.direction) {
+      current = { level: run ? run.level + 1 : 0, direction: node.direction, top: node, cuts: [] };
+      runs.push(current);
     }
-    available = available.filter((c) => c.direction !== direction);
-    batch = batch.sort((a, b) =>
-      direction === 'horizontal' ? a.y + a.position - (b.y + b.position) || a.x - b.x : a.x + a.position - (b.x + b.position) || a.y - b.y,
-    );
-    for (const cut of batch) {
-      cut.sequence = ++seq;
-      for (const child of [cut.first, cut.second]) if (child?.type === 'cut') available.push(child);
+    current.cuts.push(node);
+    visit(node.first, node, current);
+    if (node.second) visit(node.second, node, current);
+  };
+  visit(tree, null, null);
+
+  const reading = (a: Run, b: Run): number => a.top.y - b.top.y || a.top.x - b.top.x;
+  let seq = 0;
+  let last: CutNode['direction'] | null = null;
+  const maxLevel = runs.reduce((m, r) => Math.max(m, r.level), 0);
+  for (let level = 0; level <= maxLevel; level++) {
+    const atLevel = runs.filter((r) => r.level === level);
+    // Turn the paper once per level: continue in the direction that is not the one just used.
+    const first: CutNode['direction'] = last === 'vertical' ? 'horizontal' : last === 'horizontal' ? 'vertical' : (atLevel[0]?.direction ?? 'vertical');
+    const second: CutNode['direction'] = first === 'vertical' ? 'horizontal' : 'vertical';
+    for (const direction of [first, second]) {
+      for (const run of atLevel.filter((r) => r.direction === direction).sort(reading)) {
+        for (const cut of run.cuts) cut.sequence = ++seq;
+        last = direction;
+      }
     }
   }
   return seq;
