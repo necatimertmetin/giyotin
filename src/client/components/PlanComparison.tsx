@@ -21,17 +21,19 @@ const LAYOUT_NAME = ['', 'Tek Kalıp', 'İki Kalıp', 'Üç Kalıp'];
 /** Chip text for a plan tag: "cheapest" or "layouts-N" (its number of different cutting layouts). */
 export function tagLabel(tag: string): string {
   if (tag === 'cheapest') return 'En ucuz kağıt maliyeti';
+  if (tag === 'balanced') return 'Dengeli plan';
   const k = Number(tag.replace('layouts-', ''));
   return LAYOUT_NAME[k] ?? `${k} kalıp`;
 }
 
-/** The first plan is the recommended "Plan 1"; every other plan is named after what it is (its layout count, or the cheapest). */
+const PLAN_NAME: Record<string, string> = { cheapest: 'En Ucuz', balanced: 'Dengeli' };
+
+/** A plan is named after what it is: its layout count, else the cheapest, else the balanced plan. */
 export function planName(plans: Plan[], id: string): string {
-  const i = plans.findIndex((p) => p.id === id);
-  if (i <= 0) return 'Plan 1';
-  const tags = plans[i]?.tags ?? [];
+  const tags = plans.find((p) => p.id === id)?.tags ?? [];
   const layouts = tags.find((t) => t.startsWith('layouts-'));
-  return tagLabel(layouts ?? tags[0] ?? 'cheapest');
+  if (layouts) return tagLabel(layouts);
+  return PLAN_NAME[tags[0] ?? ''] ?? 'Plan';
 }
 
 function bestOf(plans: Plan[]): Best {
