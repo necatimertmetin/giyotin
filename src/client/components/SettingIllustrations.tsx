@@ -1,4 +1,5 @@
 import type { ReactElement } from 'react';
+import type { EdgeMargins } from '../../engine';
 import { fmtNum } from '../format';
 
 const INK = '#1f2933';
@@ -22,14 +23,16 @@ export function KerfIllustration({ kerf }: { kerf: number }): ReactElement {
 }
 
 /** Sheet with the trimmed edge band; band thickness follows the setting. */
-export function MarginIllustration({ margin }: { margin: number }): ReactElement {
-  const band = margin > 0 ? Math.min(26, 6 + margin * 2) : 0;
+export function MarginIllustration({ margins }: { margins: EdgeMargins }): ReactElement {
+  const margin = Math.max(margins.top, margins.right, margins.bottom, margins.left);
+  const bandOf = (v: number): number => (v > 0 ? Math.min(26, 6 + v * 2) : 0);
+  const [bt, br, bb, bl] = [bandOf(margins.top), bandOf(margins.right), bandOf(margins.bottom), bandOf(margins.left)];
   return (
-    <svg viewBox="0 0 400 130" width="100%" role="img" aria-label={margin > 0 ? `Kenar payı çizimi: her kenardan ${fmtNum(margin)} milimetre kırpılır` : 'Kenar kırpma yok'}>
+    <svg viewBox="0 0 400 130" width="100%" role="img" aria-label={margin > 0 ? `Kenar payı çizimi: üst ${fmtNum(margins.top)}, sağ ${fmtNum(margins.right)}, alt ${fmtNum(margins.bottom)}, sol ${fmtNum(margins.left)} milimetre kırpılır` : 'Kenar kırpma yok'}>
       <rect x="110" y="6" width="180" height="118" fill={margin > 0 ? '#f3d9d6' : '#fff'} stroke={INK} strokeWidth="2" />
-      <rect x={110 + band} y={6 + band} width={180 - 2 * band} height={118 - 2 * band} fill="#fff" stroke={margin > 0 ? '#6b7280' : 'none'} strokeDasharray="5 3" />
-      <rect x={124 + band} y={20 + band} width="62" height="40" fill="#cfe7f7" stroke={INK} />
-      <rect x={194 + band} y={20 + band} width="62" height="40" fill="#cfe7f7" stroke={INK} />
+      <rect x={110 + bl} y={6 + bt} width={180 - bl - br} height={118 - bt - bb} fill="#fff" stroke={margin > 0 ? '#6b7280' : 'none'} strokeDasharray="5 3" />
+      <rect x={124 + bl} y={20 + bt} width="62" height="40" fill="#cfe7f7" stroke={INK} />
+      <rect x={194 + bl} y={20 + bt} width="62" height="40" fill="#cfe7f7" stroke={INK} />
       {margin > 0 ? (
         <>
           <text x="40" y="58" fontSize="13" fontWeight="700" fill="#7f1d1d">atılan</text>

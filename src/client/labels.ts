@@ -1,4 +1,12 @@
-import type { PreflightIssue } from '../engine';
+import { edgeMarginsOf, type CuttingSettings, type PreflightIssue } from '../engine';
+import { fmtNum } from './format';
+
+/** "5 mm" when all edges are trimmed equally, otherwise "üst 5 · sağ 0 · alt 5 · sol 0 mm". */
+export function marginText(s: CuttingSettings): string {
+  const m = edgeMarginsOf(s);
+  if (m.top === m.right && m.right === m.bottom && m.bottom === m.left) return `${fmtNum(m.top)} mm`;
+  return `üst ${fmtNum(m.top)} · sağ ${fmtNum(m.right)} · alt ${fmtNum(m.bottom)} · sol ${fmtNum(m.left)} mm`;
+}
 
 export const PROFILE_LABEL: Record<string, string> = {
   balanced: 'Dengeli',

@@ -5,6 +5,7 @@ import DeleteIcon from '@mui/icons-material/DeleteOutline';
 import { useEffect, useMemo, useRef, useState, type ReactElement } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { DEFAULT_SETTINGS, type CuttingSettings } from '../../engine';
+import { marginText } from '../labels';
 import { materialLabelOf, type OrderDto, type RunDto } from '../../shared/api';
 import { api } from '../api';
 import { ErrorNote, PageHeader } from '../components/common';
@@ -211,7 +212,7 @@ export function NewJobPage(): ReactElement {
             run && plan ? (
               <Box data-testid="results">
                 <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5 }}>
-                  Kerf {fmtNum(run.settings.kerf)} mm · kenar payı {fmtNum(run.settings.edgeMargin)} mm · hesaplama {fmtDuration(run.result.runtimeMs)}
+                  Kerf {fmtNum(run.settings.kerf)} mm · kenar payı {marginText(run.settings)} · hesaplama {fmtDuration(run.result.runtimeMs)}
                 </Typography>
                 {(outdated || running) && <Alert severity="info" sx={{ mb: 2 }}>{running ? 'Ayarlar değişti; planlar yeniden hesaplanıyor…' : 'Sipariş veya ayarlar değişti; gösterilen plan güncel değil.'}</Alert>}
                 {run.result.issues.length > 0 && (

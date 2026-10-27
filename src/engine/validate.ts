@@ -8,7 +8,7 @@ import {
   toUnits,
   type Rect,
 } from './geometry';
-import type { OptimizationInput, Plan, SheetPlan, TreeNode } from './types';
+import { edgeMarginsOf, type OptimizationInput, type Plan, type SheetPlan, type TreeNode } from './types';
 
 const eq = (a: number, b: number): boolean => toUnits(a) === toUnits(b);
 const near = (a: number, b: number, tol = 0.01): boolean => Math.abs(a - b) <= tol;
@@ -39,8 +39,8 @@ export function validatePlan(plan: Plan, input: OptimizationInput): string[] {
     if (!eq(sheet.width, stock.width) || !eq(sheet.height, stock.height)) {
       errors.push(`${tag}: sheet size differs from stock`);
     }
-    const m = settings.edgeMargin;
-    const expectedUsable: Rect = { x: m, y: m, w: stock.width - 2 * m, h: stock.height - 2 * m };
+    const m = edgeMarginsOf(settings);
+    const expectedUsable: Rect = { x: m.left, y: m.top, w: stock.width - m.left - m.right, h: stock.height - m.top - m.bottom };
     const u = sheet.usable;
     if (!eq(u.x, expectedUsable.x) || !eq(u.y, expectedUsable.y) || !eq(u.w, expectedUsable.w) || !eq(u.h, expectedUsable.h)) {
       errors.push(`${tag}: usable rectangle ${rectOf(u)} != expected ${rectOf(expectedUsable)}`);
