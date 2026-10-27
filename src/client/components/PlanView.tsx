@@ -4,7 +4,6 @@ import { collectPieces, collectRemnants, type CuttingSettings, type Optimization
 import { FONT_MONO } from '../theme';
 import { fmtArea, fmtInt, fmtNum, fmtPercent } from '../format';
 import { CutStepper } from './CutStepper';
-import { CutTree } from './CutTree';
 import { PlanStats } from './PlanStats';
 import { SelectionInfo } from './SelectionInfo';
 import { SheetViewer } from './SheetViewer';
@@ -22,7 +21,7 @@ interface Props {
   stacked?: boolean;
 }
 
-type PanelTab = 'info' | 'steps' | 'tree' | 'offcuts';
+type PanelTab = 'info' | 'steps' | 'offcuts';
 
 /** Cutting plan detail: interactive sheet viewer, step-by-step mode, cut tree, offcuts and totals. */
 export function PlanView({ plan, input, settings, meta, actions, stacked = false }: Props): ReactElement {
@@ -103,7 +102,6 @@ export function PlanView({ plan, input, settings, meta, actions, stacked = false
             <Tabs value={tab} onChange={(_, v: PanelTab) => setTab(v)} variant="fullWidth" sx={{ minHeight: 36, borderBottom: 1, borderColor: 'divider', '& .MuiTab-root': { minHeight: 36, py: 0.5 } }}>
               <Tab value="info" label="Ayrıntı" data-testid="tab-info" />
               <Tab value="steps" label="Adımlar" data-testid="tab-steps" />
-              <Tab value="tree" label="Ağaç" data-testid="tab-tree" />
               <Tab value="offcuts" label="Artık" data-testid="tab-offcuts" />
             </Tabs>
             <Box sx={{ pt: 2 }}>
@@ -140,7 +138,6 @@ export function PlanView({ plan, input, settings, meta, actions, stacked = false
                 </Stack>
               )}
               {tab === 'steps' && <CutStepper sheet={sheet} kerf={settings.kerf} step={step} onStep={setStep} />}
-              {tab === 'tree' && <CutTree tree={sheet.tree} pieces={pieces} />}
               {tab === 'offcuts' && (
                 <Stack spacing={1}>
                   {offcuts.length === 0 && <Typography variant="body2" color="text.secondary">Bu kalıpta yeniden kullanılabilir artık oluşmuyor.</Typography>}

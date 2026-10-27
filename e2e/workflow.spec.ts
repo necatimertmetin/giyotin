@@ -75,8 +75,6 @@ test('order → plan → preview → confirm → offcut reuse', async ({ page })
   await expect(page.getByTestId('step-counter')).toContainText('Adım 1 /');
   await expect(page.getByTestId('step-description')).toContainText('Kesim #1');
   await page.screenshot({ path: `${SHOTS}/02-plan-steps.png`, fullPage: true });
-  await page.getByTestId('tab-tree').click();
-  await expect(page.getByTestId('cut-tree')).toContainText('#1');
 
   // 4. Confirm: stock is consumed, offcuts are approved.
   await page.getByTestId('open-confirm').click();

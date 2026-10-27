@@ -2,7 +2,7 @@ import { Box, FormControlLabel, IconButton, Stack, Switch, Tooltip, Typography }
 import ZoomInIcon from '@mui/icons-material/ZoomIn';
 import ZoomOutIcon from '@mui/icons-material/ZoomOut';
 import FitScreenIcon from '@mui/icons-material/FitScreen';
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent, type ReactElement } from 'react';
+import { useCallback, useId, useEffect, useLayoutEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent, type ReactElement } from 'react';
 import { collectCuts, collectPieces, collectRemnants, type CutNode, type SheetPlan } from '../../engine';
 import { ACCENT, FONT_MONO } from '../theme';
 import { fmtNum } from '../format';
@@ -151,6 +151,8 @@ export function SheetViewer({ sheet, pieces, selection, onSelect, step = null, h
   };
 
   const px = (n: number): number => n / scale; // screen px -> mm
+  // Pattern ids must be unique per viewer: several viewers are mounted at once (a hidden one would win a shared id).
+  const uid = useId().replace(/:/g, '');
   const stepMode = step !== null;
   const currentCut: CutNode | undefined = stepMode && step > 0 ? cuts[step - 1] : undefined;
   const visibleCuts = stepMode ? cuts.slice(0, step) : cuts;
@@ -191,22 +193,22 @@ export function SheetViewer({ sheet, pieces, selection, onSelect, step = null, h
           data-testid={thumbnail ? "sheet-thumb" : "sheet-svg"}
         >
           <defs>
-            <pattern id="hatch-offcut" patternUnits="userSpaceOnUse" width={px(9)} height={px(9)} patternTransform="rotate(45)">
+            <pattern id={`${uid}-offcut`} patternUnits="userSpaceOnUse" width={px(9)} height={px(9)} patternTransform="rotate(45)">
               <rect width={px(9)} height={px(9)} fill="#d7f0e4" />
               <line x1="0" y1="0" x2="0" y2={px(9)} stroke="#2f855a" strokeWidth={px(2)} />
             </pattern>
-            <pattern id="hatch-waste" patternUnits="userSpaceOnUse" width={px(8)} height={px(8)}>
+            <pattern id={`${uid}-waste`} patternUnits="userSpaceOnUse" width={px(8)} height={px(8)}>
               <rect width={px(8)} height={px(8)} fill="#f3d9d6" />
               <path d={`M0 0L${px(8)} ${px(8)}M${px(8)} 0L0 ${px(8)}`} stroke="#b4463c" strokeWidth={px(1)} />
             </pattern>
-            <pattern id="hatch-trim" patternUnits="userSpaceOnUse" width={px(6)} height={px(6)} patternTransform="rotate(-45)">
+            <pattern id={`${uid}-trim`} patternUnits="userSpaceOnUse" width={px(6)} height={px(6)} patternTransform="rotate(-45)">
               <rect width={px(6)} height={px(6)} fill="#f4f5f7" />
               <line x1="0" y1="0" x2="0" y2={px(6)} stroke="#9aa3af" strokeWidth={px(1)} />
             </pattern>
           </defs>
 
           {/* Sheet body */}
-          <rect x={0} y={0} width={W} height={H} fill="url(#hatch-trim)" stroke={INK} strokeWidth={2} vectorEffect="non-scaling-stroke" />
+          <rect x={0} y={0} width={W} height={H} fill={`url(#${uid}-trim)`} stroke={INK} strokeWidth={2} vectorEffect="non-scaling-stroke" />
           {trim > 0 && <rect x={sheet.usable.x} y={sheet.usable.y} width={sheet.usable.w} height={sheet.usable.h} fill="#fff" stroke="#6b7280" strokeDasharray="6 4" strokeWidth={1} vectorEffect="non-scaling-stroke" />}
           {trim === 0 && <rect x={0} y={0} width={W} height={H} fill="#fff" />}
 
@@ -218,7 +220,7 @@ export function SheetViewer({ sheet, pieces, selection, onSelect, step = null, h
                 y={n.y}
                 width={n.w}
                 height={n.h}
-                fill={n.type === 'offcut' ? 'url(#hatch-offcut)' : 'url(#hatch-waste)'}
+                fill={n.type === 'offcut' ? `url(#${uid}-offcut)` : `url(#${uid}-waste)`}
                 stroke={n.type === 'offcut' ? '#2f855a' : '#b4463c'}
                 strokeWidth={1}
                 vectorEffect="non-scaling-stroke"
