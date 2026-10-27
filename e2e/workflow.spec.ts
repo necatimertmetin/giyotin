@@ -140,19 +140,8 @@ test('changing the kerf and re-running changes the plan; the sample sheet follow
 
   // Plans are calculated automatically; the live sample sheet is drawn with the real engine and reacts to the kerf.
   await expect(page.getByTestId('results')).toBeVisible();
-  await page.getByTestId('tab-sample').click();
-  await expect(page.getByTestId('sample-preview')).toBeVisible();
-  const sampleCuts = async (): Promise<string> => (await page.getByTestId('sample-preview').innerText());
-  const before = await sampleCuts();
-  await page.getByTestId('setting-kerf').fill('12');
-  await expect.poll(sampleCuts, { timeout: 10_000 }).not.toBe(before);
-  await page.getByTestId('sample-steps-tab').click();
-  await expect(page.getByTestId('cut-stepper')).toBeVisible();
   await page.screenshot({ path: `${SHOTS}/05-settings-step.png`, fullPage: true });
-
-  await page.getByTestId('tab-plans').click();
-  await expect(page.getByTestId('results')).toBeVisible();
-  const kerfMetric = page.getByTestId('plan-stats').first().locator('text=Bıçak payı kaybı').locator('xpath=..');
+  const kerfMetric = page.getByTestId('plan-stats').first().locator('text=Bıçak payı').locator('xpath=..');
   const loss12 = await kerfMetric.innerText();
 
   // Settings and plans share one page: changing the kerf recalculates the plans automatically.

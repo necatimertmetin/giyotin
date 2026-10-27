@@ -1,13 +1,11 @@
-import { Box, Button, CircularProgress, IconButton, Paper, Stack, Tab, Tabs, ToggleButton, ToggleButtonGroup, Typography } from '@mui/material';
+import { Box, Button, CircularProgress, IconButton, Paper, Stack, ToggleButton, ToggleButtonGroup, Typography } from '@mui/material';
 import AddIcon from '@mui/icons-material/Add';
 import RemoveIcon from '@mui/icons-material/Remove';
-import { useEffect, useState, type ReactElement, type ReactNode } from 'react';
+import { type ReactElement, type ReactNode } from 'react';
 import { edgeMarginsOf, type CuttingSettings, type EdgeMargins } from '../../engine';
-import type { SettingsProfileDto, StockItemDto } from '../../shared/api';
+import type { SettingsProfileDto } from '../../shared/api';
 import { NumberField } from './common';
-import type { DraftLine } from './OrderEditor';
 import { ProfileBar } from './ProfileBar';
-import { SamplePreview } from './SamplePreview';
 import { KerfIllustration, MarginIllustration, OffcutIllustration } from './SettingIllustrations';
 
 interface Props {
@@ -15,15 +13,11 @@ interface Props {
   onChange: (s: CuttingSettings) => void;
   profiles: SettingsProfileDto[];
   onProfilesChanged: () => void;
-  lines: DraftLine[];
-  stock: StockItemDto[];
   running: boolean;
   onRun: () => void;
   onCancel: () => void;
   /** Rendered in the "Planlar" tab once an optimisation has run; null before that. */
   results: ReactNode | null;
-  /** True once a result exists; the first result switches to the plans tab. */
-  hasResult: boolean;
   planCount: number;
 }
 
@@ -38,7 +32,7 @@ function Card({ n, title, hint, children }: { n: number; title: string; hint: st
 }
 
 /** Settings on the left; on the right a live sample sheet and, after a run, the alternative plans. */
-export function SettingsStep({ settings, onChange, profiles, onProfilesChanged, lines, stock, running, onRun, onCancel, results, hasResult, planCount }: Props): ReactElement {
+export function SettingsStep({ settings, onChange, profiles, onProfilesChanged, running, onRun, onCancel, results, planCount }: Props): ReactElement {
   const set = (patch: Partial<CuttingSettings>): void => onChange({ ...settings, ...patch });
   const margins = edgeMarginsOf(settings);
   const blade = settings.bladeLength ?? 0;
@@ -48,12 +42,6 @@ export function SettingsStep({ settings, onChange, profiles, onProfilesChanged, 
     if (v === 'edges') set({ edgeMargins: { ...margins, ...(trimMode === 'off' ? { top: 5, right: 5, bottom: 5, left: 5 } : {}) } });
     else set({ edgeMargins: undefined, edgeMargin: v === 'on' ? (settings.edgeMargin > 0 ? settings.edgeMargin : 5) : 0 });
   };
-  const [tab, setTab] = useState<'sample' | 'plans'>('sample');
-
-  useEffect(() => {
-    if (hasResult) setTab('plans');
-  }, [hasResult]);
-
   return (
     <Stack spacing={2}>
       <Stack direction="row" justifyContent="space-between" alignItems="center" flexWrap="wrap" useFlexGap spacing={1}>
@@ -128,19 +116,13 @@ export function SettingsStep({ settings, onChange, profiles, onProfilesChanged, 
         </Stack>
 
         <Box sx={{ minWidth: 0 }}>
-          <Tabs value={tab} onChange={(_, v: 'sample' | 'plans') => setTab(v)} sx={{ mb: 1.5, borderBottom: 1, borderColor: 'divider' }}>
-            <Tab value="sample" label="Örnek kesim" data-testid="tab-sample" />
-            <Tab
-              value="plans"
-              disabled={!results}
-              data-testid="tab-plans"
-              label={planCount > 0 ? `Alternatif planlar (${planCount})` : 'Alternatif planlar'}
-            />
-          </Tabs>
-          <Box sx={{ display: tab === 'sample' ? 'block' : 'none' }}>
-            <SamplePreview lines={lines} stock={stock} settings={settings} />
-          </Box>
-          {tab === 'plans' && results}
+          <Typography variant="h6" sx={{ mb: 1 }}>{planCount > 0 ? `Alternatif planlar (${planCount})` : 'Alternatif planlar'}</Typography>
+          {results ?? (
+            <Paper sx={{ p: 3, display: 'flex', gap: 1.5, alignItems: 'center' }}>
+              {running && <CircularProgress size={20} />}
+              <Typography color="text.secondary">{running ? 'Planlar hesaplanıyor…' : 'Planları görmek için siparişteki ürün satırlarını eksiksiz doldurun.'}</Typography>
+            </Paper>
+          )}
         </Box>
       </Box>
     </Stack>

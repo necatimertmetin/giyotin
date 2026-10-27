@@ -177,12 +177,9 @@ export function NewJobPage(): ReactElement {
           onChange={setSettings}
           profiles={profiles.data ?? []}
           onProfilesChanged={profiles.reload}
-          lines={lines}
-          stock={stock.data ?? []}
           running={running}
           onRun={() => void optimize()}
           onCancel={() => abortRef.current?.abort()}
-          hasResult={run !== null}
           planCount={run?.result.plans.length ?? 0}
           results={
             run && plan ? (
