@@ -165,6 +165,28 @@ describe('kerf and margins', () => {
     expect(p.sheets[0]!.stats.trimArea).toBe(100 * 100 - 90 * 90);
   });
 
+  it('never makes a cut longer than the blade', () => {
+    const pieces = [piece('a', 90, 140, 40), piece('b', 200, 300, 12), piece('c', 60, 60, 30)];
+    for (const [w, h, blade] of [[700, 1000, 750], [700, 1000, 700], [600, 1200, 620]] as const) {
+      const inp = input(pieces, [stock('s', w, h, 20)], { kerf: 3, bladeLength: blade });
+      const r = solve(inp);
+      for (const p of r.plans) {
+        expect(validatePlan(p, inp)).toEqual([]);
+        for (const sh of p.sheets) {
+          for (const c of collectCuts(sh.tree)) expect(c.direction === 'vertical' ? c.h : c.w).toBeLessThanOrEqual(blade);
+        }
+      }
+      expect(r.plans[0]!.fulfilled).toBe(true);
+    }
+  });
+
+  it('reports stock that is wider than the blade on both sides', () => {
+    const inp = input([piece('a', 100, 100, 1)], [stock('s', 1000, 1200, 1)], { bladeLength: 750 });
+    const r = solve(inp);
+    expect(r.issues.map((i) => i.kind)).toContain('blade-length');
+    expect(r.plans[0]!.fulfilled).toBe(false);
+  });
+
   it('trims each edge by its own margin', () => {
     const edgeMargins = { top: 0, right: 0, bottom: 20, left: 10 };
     const tooBig = input([piece('a', 91, 100, 1, { allowRotation: false })], [stock('s', 100, 100, 1)], { edgeMargins });

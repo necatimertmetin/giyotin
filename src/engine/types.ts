@@ -54,6 +54,8 @@ export interface CuttingSettings {
   edgeMargin: number;
   /** Per-edge trim; when present it replaces `edgeMargin`. */
   edgeMargins?: EdgeMargins;
+  /** Longest cut the guillotine can make, mm (a cut spans its whole region). 0 / undefined = unlimited. */
+  bladeLength?: number;
   /** A leftover rectangle is a reusable offcut only if it is at least this large (in either orientation). */
   minOffcutWidth: number;
   minOffcutHeight: number;
@@ -217,7 +219,7 @@ export interface Plan {
   objective: PlanObjective;
 }
 
-export type PreflightIssueKind = 'invalid-dimension' | 'invalid-quantity' | 'no-fit' | 'no-material' | 'no-stock';
+export type PreflightIssueKind = 'invalid-dimension' | 'invalid-quantity' | 'no-fit' | 'no-material' | 'no-stock' | 'blade-length';
 
 export interface PreflightIssue {
   pieceId: string;

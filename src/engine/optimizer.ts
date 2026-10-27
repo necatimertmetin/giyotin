@@ -118,6 +118,15 @@ interface OuterState {
 // Preflight
 // ---------------------------------------------------------------------------------------------
 
+/** The blade length in mm, or Infinity when unlimited. */
+const bladeOf = (s: CuttingSettings): number => (s.bladeLength !== undefined && s.bladeLength > 0 ? s.bladeLength : Number.POSITIVE_INFINITY);
+
+/** A stock item can only be cut apart if the blade spans one of its two (trimmed) sides. */
+function cuttable(settings: CuttingSettings, s: { width: number; height: number }): boolean {
+  const m = edgeMarginsOf(settings);
+  return Math.min(s.width - m.left - m.right, s.height - m.top - m.bottom) <= bladeOf(settings);
+}
+
 function preflight(input: OptimizationInput): { issues: PreflightIssue[]; placeable: boolean[] } {
   const issues: PreflightIssue[] = [];
   const m = edgeMarginsOf(input.settings);
@@ -141,7 +150,12 @@ function preflight(input: OptimizationInput): { issues: PreflightIssue[]; placea
       });
       return false;
     }
-    const fitsSomewhere = materialMatches.some((s) =>
+    const cuttableMatches = materialMatches.filter((s) => cuttable(input.settings, s));
+    if (cuttableMatches.length === 0) {
+      issues.push({ pieceId: piece.id, kind: 'blade-length', message: `${piece.name}: the blade is shorter than both sides of every eligible stock item` });
+      return false;
+    }
+    const fitsSomewhere = cuttableMatches.some((s) =>
       allowedOrientations(
         { w: piece.width, h: piece.height, allowRotation: piece.allowRotation, grain: piece.grain },
         s,
@@ -218,6 +232,7 @@ function sheetPatterns(
     pieceIds: ctx.pieceIds,
     remaining: rem,
     beamWidth: width,
+    bladeLength: Number.isFinite(bladeOf(ctx.settings)) ? toUnits(bladeOf(ctx.settings)) : undefined,
     classify: ctx.classify,
   };
   const patterns = searchSheet(cfg, budget, maxResults).filter((p) => p.pieceArea > 0);
@@ -600,7 +615,7 @@ export function optimize(input: OptimizationInput, options: OptimizeOptions = {}
 
   const orientations: Orientation[][][] = input.stocks.map((s, j) => {
     const usable = stocks[j]!.usable;
-    const valid = s.quantity > 0 && usable.w > 0 && usable.h > 0;
+    const valid = s.quantity > 0 && usable.w > 0 && usable.h > 0 && cuttable(settings, s);
     return input.pieces.map((p, i) => {
       if (!valid || !placeable[i]) return [];
       if (p.materialKey !== null && p.materialKey !== s.materialKey) return [];

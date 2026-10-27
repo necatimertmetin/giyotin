@@ -42,6 +42,7 @@ function Card({ n, title, hint, children }: { n: number; title: string; hint: st
 export function SettingsStep({ settings, onChange, profiles, onProfilesChanged, lines, stock, running, onBack, onRun, onCancel, results, hasResult, planCount }: Props): ReactElement {
   const set = (patch: Partial<CuttingSettings>): void => onChange({ ...settings, ...patch });
   const margins = edgeMarginsOf(settings);
+  const blade = settings.bladeLength ?? 0;
   const trimMode: 'off' | 'on' | 'edges' = settings.edgeMargins ? 'edges' : settings.edgeMargin > 0 ? 'on' : 'off';
   const setEdge = (edge: keyof EdgeMargins, v: number | null): void => set({ edgeMargins: { ...margins, [edge]: Math.max(0, v ?? 0) } });
   const setTrimMode = (v: 'off' | 'on' | 'edges'): void => {
@@ -108,7 +109,17 @@ export function SettingsStep({ settings, onChange, profiles, onProfilesChanged, 
             )}
           </Card>
 
-          <Card n={3} title="En küçük saklanacak artık" hint="Her kenarı bundan küçük kalanlar fire olur.">
+          <Card n={3} title="Giyotin bıçak boyu" hint="Bir kesim en fazla bu uzunlukta olabilir; bundan geniş bir kağıt tek hamlede kesilemez.">
+            <Stack direction="row" spacing={1.5} alignItems="center">
+              <ToggleButtonGroup exclusive size="small" value={blade > 0 ? 'limit' : 'none'} onChange={(_, v: 'none' | 'limit' | null) => v && set({ bladeLength: v === 'limit' ? 760 : undefined })}>
+                <ToggleButton value="none" sx={{ px: 1.5 }} data-testid="blade-none">Sınırsız</ToggleButton>
+                <ToggleButton value="limit" sx={{ px: 1.5 }} data-testid="blade-limit">Sınırlı</ToggleButton>
+              </ToggleButtonGroup>
+              {blade > 0 && <NumberField value={blade} onChange={(v) => set({ bladeLength: v && v > 0 ? v : undefined })} unit="mm" sx={{ width: 120 }} inputProps={{ 'aria-label': 'Giyotin bıçak boyu', 'data-testid': 'setting-blade' }} />}
+            </Stack>
+          </Card>
+
+          <Card n={4} title="En küçük saklanacak artık" hint="Her kenarı bundan küçük kalanlar fire olur.">
             <OffcutIllustration w={settings.minOffcutWidth} h={settings.minOffcutHeight} />
             <Stack direction="row" spacing={1} alignItems="center" sx={{ mt: 1 }}>
               <NumberField value={settings.minOffcutWidth} onChange={(v) => set({ minOffcutWidth: Math.max(0, v ?? 0) })} unit="mm" sx={{ width: 120 }} inputProps={{ 'aria-label': 'Min. artık genişliği', 'data-testid': 'setting-min-offcut' }} />

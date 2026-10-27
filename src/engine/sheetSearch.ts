@@ -53,6 +53,8 @@ export interface SheetSearchConfig {
   /** Remaining demand per global piece index. */
   remaining: number[];
   beamWidth: number;
+  /** Longest cut the blade can make (grid units); a cut spans its whole region. undefined = unlimited. */
+  bladeLength?: number;
   classify: (w: number, h: number) => 'offcut' | 'waste';
 }
 
@@ -77,6 +79,8 @@ interface PlaceDecision {
   cx: number;
   cy: number;
   variant: 'V' | 'H';
+  /** Which way the block is split into pieces: whole columns first, or whole rows first. */
+  order: 'cols' | 'rows';
 }
 interface CutDecision {
   op: 'cut';
@@ -140,6 +144,8 @@ export function searchSheet(
   maxResults: number,
 ): SheetPattern[] {
   const { kerf, orientations, remaining } = cfg;
+  const maxCut = cfg.bladeLength ?? Number.POSITIVE_INFINITY;
+  const limited = Number.isFinite(maxCut);
   const typeCount = orientations.length;
 
   const widths: number[] = [];
@@ -196,6 +202,22 @@ export function searchSheet(
     return `${keys.join(';')}|${s.rem.join(',')}`;
   };
 
+  /** Block split order whose cuts all fit the blade, or null when the block cannot be cut apart. */
+  const blockOrder = (cx: number, cy: number, o: Orientation, bw: number, bh: number): 'cols' | 'rows' | null => {
+    if ((cx <= 1 || bh <= maxCut) && (cy <= 1 || o.w <= maxCut)) return 'cols';
+    if ((cy <= 1 || bw <= maxCut) && (cx <= 1 || o.h <= maxCut)) return 'rows';
+    return null;
+  };
+
+  /** Placement variants whose separating cuts fit the blade (without a limit: V and H coincide when the block spans a side). */
+  const variantsFor = (region: Rect, bw: number, bh: number): Array<'V' | 'H'> => {
+    if (!limited) return bw === region.w || bh === region.h ? ['V'] : ['V', 'H'];
+    const out: Array<'V' | 'H'> = [];
+    if ((bw >= region.w || region.h <= maxCut) && (bh >= region.h || bw <= maxCut)) out.push('V');
+    if ((bh >= region.h || region.w <= maxCut) && (bw >= region.w || bh <= maxCut)) out.push('H');
+    return out;
+  };
+
   const blockShapes = (region: Rect, o: Orientation, rem: number): Array<[number, number]> => {
     const cxMax = Math.floor((region.w + kerf) / (o.w + kerf));
     const cyMax = Math.floor((region.h + kerf) / (o.h + kerf));
@@ -234,8 +256,9 @@ export function searchSheet(
         for (const [cx, cy] of shapes) {
           const bw = cx * o.w + (cx - 1) * kerf;
           const bh = cy * o.h + (cy - 1) * kerf;
-          const variants: Array<'V' | 'H'> = bw === region.w || bh === region.h ? ['V'] : ['V', 'H'];
-          for (const variant of variants) {
+          const order = blockOrder(cx, cy, o, bw, bh);
+          if (!order) continue;
+          for (const variant of variantsFor(region, bw, bh)) {
             const children = placeChildren(region, bw, bh, variant, kerf);
             const nextRem = s.rem.slice();
             nextRem[i] = rem - cx * cy;
@@ -249,6 +272,7 @@ export function searchSheet(
               cx,
               cy,
               variant,
+              order,
             };
             const cuts = (bw < region.w ? 1 : 0) + (bh < region.h ? 1 : 0) + cx * cy - 1;
             out.push(
@@ -269,6 +293,7 @@ export function searchSheet(
     // 2. Pure guillotine cuts through the region at normal-pattern positions.
     if (placeOnly) return;
     for (const direction of ['vertical', 'horizontal'] as const) {
+      if ((direction === 'vertical' ? region.h : region.w) > maxCut) continue;
       const extent = direction === 'vertical' ? region.w : region.h;
       const points = direction === 'vertical' ? nx : ny;
       const scored: Array<{ p: number; slack: number }> = [];
@@ -311,7 +336,7 @@ export function searchSheet(
       const othersEst = estimate(others);
       let bestScore = -1;
       let bestArea = 0;
-      let pick: { i: number; o: Orientation; cx: number; cy: number; variant: 'V' | 'H'; children: Rect[] } | null = null;
+      let pick: { i: number; o: Orientation; cx: number; cy: number; variant: 'V' | 'H'; order: 'cols' | 'rows'; children: Rect[] } | null = null;
       for (let i = 0; i < typeCount; i++) {
         const r = rem[i] ?? 0;
         if (r <= 0) continue;
@@ -321,21 +346,22 @@ export function searchSheet(
             const area = cx * cy * o.w * o.h;
             const bw = cx * o.w + (cx - 1) * kerf;
             const bh = cy * o.h + (cy - 1) * kerf;
-            const variants: Array<'V' | 'H'> = bw === region.w || bh === region.h ? ['V'] : ['V', 'H'];
-            for (const variant of variants) {
+            const order = blockOrder(cx, cy, o, bw, bh);
+            if (!order) continue;
+            for (const variant of variantsFor(region, bw, bh)) {
               const children = placeChildren(region, bw, bh, variant, kerf);
               const score = area + Math.min(demandLeft - area, othersEst + estimate(children));
               if (score > bestScore || (score === bestScore && area > bestArea)) {
                 bestScore = score;
                 bestArea = area;
-                pick = { i, o, cx, cy, variant, children };
+                pick = { i, o, cx, cy, variant, order, children };
               }
             }
           }
         }
       }
       if (!pick) break;
-      const { i, o, cx, cy, variant, children } = pick;
+      const { i, o, cx, cy, variant, order, children } = pick;
       const bw = cx * o.w + (cx - 1) * kerf;
       const bh = cy * o.h + (cy - 1) * kerf;
       const nextRem = rem.slice();
@@ -348,7 +374,7 @@ export function searchSheet(
       cuts += (bw < region.w ? 1 : 0) + (bh < region.h ? 1 : 0) + cx * cy - 1;
       decisions = {
         prev: decisions,
-        data: { op: 'place', region, index: i, w: o.w, h: o.h, rotated: o.rotated, cx, cy, variant: bestVariant },
+        data: { op: 'place', region, index: i, w: o.w, h: o.h, rotated: o.rotated, cx, cy, variant: bestVariant, order },
       };
       budget.nodes += 3;
     }
@@ -471,6 +497,11 @@ function buildPattern(state: State, cfg: SheetSearchConfig): SheetPattern {
   const block = (x: number, y: number, cx: number, cy: number, d: PlaceDecision): TreeNode => {
     const w = cx * d.w + (cx - 1) * kerf;
     const h = cy * d.h + (cy - 1) * kerf;
+    if (d.order === 'rows' && cy > 1) {
+      const first = block(x, y, cx, 1, d);
+      const second = block(x, y + d.h + kerf, cx, cy - 1, d);
+      return { type: 'cut', x, y, w, h, direction: 'horizontal', position: d.h, kerf, sequence: 0, first, second };
+    }
     if (cx > 1) {
       const first = block(x, y, 1, cy, d);
       const second = block(x + d.w + kerf, y, cx - 1, cy, d);

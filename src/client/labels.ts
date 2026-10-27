@@ -32,5 +32,7 @@ export function issueText(issue: PreflightIssue, name: string): string {
       return `${name}: seçilen kağıt cinsinde kullanılabilir stok yok.`;
     case 'no-stock':
       return `${name}: kullanılabilir stok yok.`;
+    case 'blade-length':
+      return `${name}: giyotin bıçağı, uygun stok kalemlerinin iki kenarından da kısa; bu kağıt tek hamlede kesilemez.`;
   }
 }

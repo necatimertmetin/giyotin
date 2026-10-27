@@ -212,7 +212,7 @@ export function NewJobPage(): ReactElement {
             run && plan ? (
               <Box data-testid="results">
                 <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5 }}>
-                  Kerf {fmtNum(run.settings.kerf)} mm · kenar payı {marginText(run.settings)} · hesaplama {fmtDuration(run.result.runtimeMs)}
+                  Kerf {fmtNum(run.settings.kerf)} mm · kenar payı {marginText(run.settings)}{run.settings.bladeLength ? ` · bıçak ${fmtNum(run.settings.bladeLength)} mm` : ''} · hesaplama {fmtDuration(run.result.runtimeMs)}
                 </Typography>
                 {(outdated || running) && <Alert severity="info" sx={{ mb: 2 }}>{running ? 'Ayarlar değişti; planlar yeniden hesaplanıyor…' : 'Sipariş veya ayarlar değişti; gösterilen plan güncel değil.'}</Alert>}
                 {run.result.issues.length > 0 && (

@@ -16,7 +16,7 @@ interface Props {
 /** Only the settings the user can see take part in "is this the saved profile?". */
 const KEYS: Array<keyof CuttingSettings> = ['kerf', 'edgeMargin', 'minOffcutWidth', 'minOffcutHeight'];
 const same = (a: CuttingSettings, b: CuttingSettings): boolean =>
-  KEYS.every((k) => a[k] === b[k]) && JSON.stringify(edgeMarginsOf(a)) === JSON.stringify(edgeMarginsOf(b));
+  KEYS.every((k) => a[k] === b[k]) && (a.bladeLength ?? 0) === (b.bladeLength ?? 0) && JSON.stringify(edgeMarginsOf(a)) === JSON.stringify(edgeMarginsOf(b));
 
 /** Saved cutting-settings profiles: one click applies, the current values can be saved under a name. */
 export function ProfileBar({ settings, profiles, onApply, onChanged }: Props): ReactElement {
@@ -59,7 +59,7 @@ export function ProfileBar({ settings, profiles, onApply, onChanged }: Props): R
             color={active?.id === p.id ? 'primary' : 'default'}
             variant={active?.id === p.id ? 'filled' : 'outlined'}
             icon={active?.id === p.id ? <CheckIcon /> : undefined}
-            onClick={() => onApply({ ...settings, edgeMargins: undefined, ...p.settings })}
+            onClick={() => onApply({ ...settings, edgeMargins: undefined, bladeLength: undefined, ...p.settings })}
             onDelete={
               p.id === 0
                 ? undefined
