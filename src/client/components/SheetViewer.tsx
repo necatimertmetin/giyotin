@@ -76,12 +76,14 @@ export function SheetViewer({ sheet, pieces, selection, onSelect, step = null, o
 
   const fitBox = useCallback(
     (cw: number, ch: number): ViewBox => {
-      const pad = Math.max(bx1 - bx0, by1 - by0) * (thumbnail ? 0.02 : 0.07);
-      const aspect = cw / Math.max(ch, 1);
-      let w = bx1 - bx0 + 2 * pad;
-      let h = by1 - by0 + 2 * pad;
-      if (w / h < aspect) w = h * aspect;
-      else h = w / aspect;
+      // The controls sit in columns at both sides, so they get their own margin instead of covering the sheet.
+      const side = thumbnail ? 0.02 * cw : 128;
+      const vert = thumbnail ? 0.02 * ch : 40;
+      const bw = Math.max(bx1 - bx0, 1);
+      const bh = Math.max(by1 - by0, 1);
+      const k = Math.max(0.01, Math.min((cw - 2 * side) / bw, (ch - 2 * vert) / bh));
+      const w = cw / k;
+      const h = ch / k;
       return { x: (bx0 + bx1) / 2 - w / 2, y: (by0 + by1) / 2 - h / 2, w, h };
     },
     [bx0, by0, bx1, by1, thumbnail],
@@ -385,16 +387,18 @@ export function SheetViewer({ sheet, pieces, selection, onSelect, step = null, o
         </svg>
       </Box>
 
-      {!thumbnail && overlay && <Box sx={{ position: 'absolute', top: 8, left: 150 }}>{overlay}</Box>}
       {!thumbnail && (
         <>
-          <Stack direction="row" spacing={0.5} sx={{ position: 'absolute', top: 8, left: 8, bgcolor: 'background.paper', border: '1px solid', borderColor: 'divider', borderRadius: 1, p: 0.25 }}>
-            <Tooltip title="Yakınlaştır"><IconButton size="small" aria-label="Yakınlaştır" onClick={() => zoomAt(1.35)}><ZoomInIcon fontSize="small" /></IconButton></Tooltip>
-            <Tooltip title="Uzaklaştır"><IconButton size="small" aria-label="Uzaklaştır" onClick={() => zoomAt(1 / 1.35)}><ZoomOutIcon fontSize="small" /></IconButton></Tooltip>
-            <Tooltip title={rot ? 'Dik göster' : 'Yan çevir'}><IconButton size="small" aria-label="Görünümü çevir" color={rot ? 'primary' : 'default'} onClick={() => setSideways((v) => !v)} data-testid="rotate-view"><ScreenRotationIcon fontSize="small" /></IconButton></Tooltip>
-            <Tooltip title="Ekrana sığdır"><IconButton size="small" aria-label="Ekrana sığdır" onClick={() => setVb(fitBox(size.w, size.h))}><FitScreenIcon fontSize="small" /></IconButton></Tooltip>
-          </Stack>
-          <Stack direction="row" spacing={1} sx={{ position: 'absolute', top: 8, right: 8, bgcolor: 'background.paper', border: '1px solid', borderColor: 'divider', borderRadius: 1, px: 1 }}>
+          <Box sx={{ position: 'absolute', top: 8, left: 8, display: 'flex', flexDirection: 'column', gap: 1, alignItems: 'flex-start' }}>
+            <Stack direction="column" spacing={0.25} sx={{ bgcolor: 'background.paper', border: '1px solid', borderColor: 'divider', borderRadius: 1, p: 0.25 }}>
+              <Tooltip title="Yakınlaştır" placement="right"><IconButton size="small" aria-label="Yakınlaştır" onClick={() => zoomAt(1.35)}><ZoomInIcon fontSize="small" /></IconButton></Tooltip>
+              <Tooltip title="Uzaklaştır" placement="right"><IconButton size="small" aria-label="Uzaklaştır" onClick={() => zoomAt(1 / 1.35)}><ZoomOutIcon fontSize="small" /></IconButton></Tooltip>
+              <Tooltip title={rot ? 'Dik göster' : 'Yan çevir'} placement="right"><IconButton size="small" aria-label="Görünümü çevir" color={rot ? 'primary' : 'default'} onClick={() => setSideways((v) => !v)} data-testid="rotate-view"><ScreenRotationIcon fontSize="small" /></IconButton></Tooltip>
+              <Tooltip title="Ekrana sığdır" placement="right"><IconButton size="small" aria-label="Ekrana sığdır" onClick={() => setVb(fitBox(size.w, size.h))}><FitScreenIcon fontSize="small" /></IconButton></Tooltip>
+            </Stack>
+            {overlay}
+          </Box>
+          <Stack direction="column" spacing={0} sx={{ position: 'absolute', top: 8, right: 8, bgcolor: 'background.paper', border: '1px solid', borderColor: 'divider', borderRadius: 1, px: 1, py: 0.25, alignItems: 'flex-start' }}>
             <FormControlLabel control={<Switch size="small" checked={showLabels} onChange={(e) => setShowLabels(e.target.checked)} />} label={<Typography variant="caption">Etiket</Typography>} />
             <FormControlLabel control={<Switch size="small" checked={showNumbers} onChange={(e) => setShowNumbers(e.target.checked)} />} label={<Typography variant="caption">Kesim no</Typography>} />
             <FormControlLabel control={<Switch size="small" checked={showKerf} onChange={(e) => setShowKerf(e.target.checked)} />} label={<Typography variant="caption">Kerf</Typography>} />
@@ -423,7 +427,7 @@ export function SheetViewer({ sheet, pieces, selection, onSelect, step = null, o
             </svg>
           </Box>
           <Typography variant="caption" color="text.secondary" sx={{ position: 'absolute', bottom: 10, left: 12, bgcolor: 'rgba(255,255,255,0.85)', px: 0.75, borderRadius: 0.5, fontFamily: FONT_MONO }}>
-            {fmtNum(scale * 10, 1)} px/cm · tekerlek: yakınlaştır · sürükle: kaydır
+            {fmtNum(scale * 10, 1)} px/cm<br />tekerlek: yakınlaştır<br />sürükle: kaydır
           </Typography>
         </>
       )}
