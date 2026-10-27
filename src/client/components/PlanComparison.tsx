@@ -1,7 +1,7 @@
 import { Box, Chip, Paper, Radio, Stack, Typography } from '@mui/material';
 import CheckIcon from '@mui/icons-material/Check';
 import { useMemo, type ReactElement } from 'react';
-import type { Plan } from '../../engine';
+import { cutSteps, type Plan } from '../../engine';
 import { FONT_MONO } from '../theme';
 import { fmtArea, fmtInt, fmtMoney, fmtPercent } from '../format';
 
@@ -51,7 +51,7 @@ function bestOf(plans: Plan[]): Best {
     cost: plans.every((p) => p.totals.cost !== null) ? pick((p) => p.totals.cost, 'min') : new Set(),
     waste: pick((p) => p.totals.wasteArea, 'min'),
     offcut: pick((p) => p.totals.offcutArea, 'max'),
-    cuts: pick((p) => p.totals.cuts, 'min'),
+    cuts: pick((p) => cutSteps(p), 'min'),
   };
 }
 
@@ -103,7 +103,7 @@ export function PlanComparison({ plans, selectedId, onSelect, horizontal = false
               <Cell label="Kullanım" value={fmtPercent(p.totals.utilization)} />
               <Cell label="Fire" value={fmtArea(p.totals.wasteArea)} good={isBest('waste')} />
               <Cell label="Artık" value={fmtArea(p.totals.offcutArea)} good={isBest('offcut')} />
-              <Cell label="Kesim" value={fmtInt(p.totals.cuts)} good={isBest('cuts')} />
+              <Cell label="Kesim adımı" value={fmtInt(cutSteps(p))} good={isBest('cuts')} />
             </Box>
           </Paper>
         );
