@@ -152,7 +152,7 @@ export function SheetViewer({ sheet, pieces, selection, onSelect, step = null, h
 
   const px = (n: number): number => n / scale; // screen px -> mm
   // Pattern ids must be unique per viewer: several viewers are mounted at once (a hidden one would win a shared id).
-  const uid = useId().replace(/:/g, '');
+  const uid = useId().replace(/[^A-Za-z0-9_-]/g, '');
   const stepMode = step !== null;
   const currentCut: CutNode | undefined = stepMode && step > 0 ? cuts[step - 1] : undefined;
   const visibleCuts = stepMode ? cuts.slice(0, step) : cuts;
