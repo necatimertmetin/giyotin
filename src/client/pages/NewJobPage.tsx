@@ -10,7 +10,7 @@ import { api } from '../api';
 import { ErrorNote, PageHeader } from '../components/common';
 import { ConfirmPlanDialog } from '../components/ConfirmPlanDialog';
 import { fromDto, isValid, newLine, OrderEditor, toDto, type DraftLine } from '../components/OrderEditor';
-import { PlanComparison } from '../components/PlanComparison';
+import { PlanComparison, planName } from '../components/PlanComparison';
 import { PlanView } from '../components/PlanView';
 import { SettingsStep } from '../components/SettingsStep';
 import { fmtDuration, fmtNum } from '../format';
@@ -224,7 +224,7 @@ export function NewJobPage(): ReactElement {
                 )}
                 <PlanComparison plans={run.result.plans} selectedId={plan.id} onSelect={setSelectedPlan} horizontal />
                 <Box sx={{ mt: 2, minWidth: 0 }} data-testid="plan-detail">
-                  <Typography variant="h6" sx={{ mb: 1 }}>Plan {run.result.plans.findIndex((p) => p.id === plan.id) + 1} — nasıl kesilecek?</Typography>
+                  <Typography variant="h6" sx={{ mb: 1 }}>{planName(run.result.plans, plan.id)} — nasıl kesilecek?</Typography>
                   <PlanView
                     plan={plan}
                     input={run.input}
