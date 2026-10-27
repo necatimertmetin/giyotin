@@ -373,7 +373,7 @@ function improve(ctx: Ctx, best: OuterState, prof: Profile, budget: SearchBudget
 
 function buildPlan(ctx: Ctx, state: OuterState, prof: Profile): Plan {
   const { input } = ctx;
-  const sheets: SheetPlan[] = state.groups.map((grp) => {
+  const built: SheetPlan[] = state.groups.map((grp) => {
     const stockSpec = input.stocks[grp.stock]!;
     const stock = ctx.stocks[grp.stock]!;
     const tree = scaleTree(grp.pattern.tree, 1 / UNIT);
@@ -395,6 +395,16 @@ function buildPlan(ctx: Ctx, state: OuterState, prof: Profile): Plan {
     };
   });
 
+  // Identical cutting layouts on the same stock are one entry with more copies, however the search found them.
+  const merged = new Map<string, SheetPlan>();
+  for (const sh of built) {
+    const key = `${sh.stockId}|${JSON.stringify(sh.tree)}`;
+    const prev = merged.get(key);
+    if (prev) prev.copies += sh.copies;
+    else merged.set(key, { ...sh });
+  }
+  const sheets = [...merged.values()];
+
   const placed: Record<string, number> = {};
   for (const piece of input.pieces) placed[piece.id] = 0;
   for (const grp of state.groups) {
@@ -406,6 +416,9 @@ function buildPlan(ctx: Ctx, state: OuterState, prof: Profile): Plan {
   const unfulfilled = input.pieces
     .filter((p) => (placed[p.id] ?? 0) < p.quantity)
     .map((p) => ({ pieceId: p.id, name: p.name, quantity: p.quantity - (placed[p.id] ?? 0) }));
+  /* Only the single-layout plan cuts more than demanded; ordinary plans never do. */
+  const overproduced: Record<string, number> = {};
+  for (const p of input.pieces) if ((placed[p.id] ?? 0) > p.quantity) overproduced[p.id] = (placed[p.id] ?? 0) - p.quantity;
 
   const totals: PlanTotals = {
     stockArea: 0,
@@ -449,6 +462,7 @@ function buildPlan(ctx: Ctx, state: OuterState, prof: Profile): Plan {
     placed,
     unfulfilled,
     fulfilled: unfulfilled.length === 0,
+    ...(Object.keys(overproduced).length > 0 ? { overproduced } : {}),
     objective: { profile: prof.id, score: finalScore(ctx, state) },
   };
 }
@@ -468,6 +482,70 @@ function singleStockCombos(ctx: Ctx, cap = 12): Array<Set<number>> {
   let combos: number[][] = [[]];
   for (const options of byMaterial.values()) combos = combos.flatMap((c) => options.map((j) => [...c, j]));
   return combos.slice(0, cap).map((c) => new Set(c));
+}
+
+/** One layout for the whole demand of `pieces` on stock `j`, repeated m times (fewest m that works). */
+function singleLayout(ctx: Ctx, j: number, pieces: number[], budget: SearchBudget): Group | null {
+  const stock = ctx.stocks[j]!;
+  const usableArea = (stock.usable.w * stock.usable.h) / UNIT2;
+  const demandArea = pieces.reduce((a, i) => a + (ctx.initialRem[i] ?? 0) * (ctx.pieceAreaMm[i] ?? 0), 0);
+  const mLow = Math.max(1, Math.ceil(demandArea / usableArea));
+  const mHigh = Math.min(ctx.input.stocks[j]!.quantity, mLow + 40);
+  for (let m = mLow; m <= mHigh; m++) {
+    if (budgetExhausted(budget)) return null;
+    const rem = ctx.initialRem.map((r, i) => (pieces.includes(i) ? Math.ceil(r / m) : 0));
+    const need = pieces.reduce((a, i) => a + (rem[i] ?? 0) * (ctx.pieceAreaMm[i] ?? 0), 0);
+    if (need > usableArea) continue;
+    const fits = sheetPatterns(ctx, j, rem, budget).filter((p) => pieces.every((i) => (p.counts[i] ?? 0) >= (rem[i] ?? 0)));
+    const pattern = fits.sort((x, y) => x.cuts - y.cuts)[0];
+    if (pattern) return { stock: j, pattern, copies: m };
+  }
+  return null;
+}
+
+/** Best single-layout state over the stock combinations, or the best one-format multi-layout state as fallback. */
+function singleLayoutState(ctx: Ctx, combos: Array<Set<number>>, budget: SearchBudget, from: number, slice: number, width: number): OuterState | null {
+  const prof = PROFILES[0]!;
+  let best: { state: OuterState; score: number } | null = null;
+  let fallback: { state: OuterState; score: number } | null = null;
+  combos.forEach((allowed, c) => {
+    if (budget.stopped === 'cancelled') return;
+    const sub: SearchBudget = { ...budget, stopped: 'completed', deadline: from + slice * ((c + 1) / combos.length) };
+    // Which allowed stock each demanded piece is cut from (the first allowed stock it fits).
+    const assigned = new Map<number, number[]>();
+    let feasible = true;
+    ctx.initialRem.forEach((r, i) => {
+      if (r <= 0) return;
+      const j = [...allowed].find((k) => (ctx.orientations[k]![i]?.length ?? 0) > 0);
+      if (j === undefined) feasible = false;
+      else assigned.set(j, [...(assigned.get(j) ?? []), i]);
+    });
+    if (!feasible) return;
+    const groups: Group[] = [];
+    for (const [j, pieces] of assigned) {
+      const g = singleLayout(ctx, j, pieces, sub);
+      if (!g) {
+        feasible = false;
+        break;
+      }
+      groups.push(g);
+    }
+    if (feasible) {
+      let state = restart(ctx, [], prof);
+      for (const g of groups) state = applyGroup(ctx, state, g.stock, g.pattern, g.copies, prof);
+      state = { ...state, rem: state.rem.map((r) => Math.max(0, r)) };
+      const score = finalScore(ctx, state);
+      if (!best || score < best.score) best = { state, score };
+    } else if (!best) {
+      const restricted: Ctx = { ...ctx, orientations: ctx.orientations.map((o, j) => (allowed.has(j) ? o : o.map(() => []))) };
+      const top = runOuter(restricted, restart(restricted, [], prof), width, prof, sub)[0];
+      if (top && (!fallback || finalScore(restricted, top) < fallback.score)) fallback = { state: top, score: finalScore(restricted, top) };
+    }
+    budget.nodes += sub.nodes;
+    if (sub.stopped === 'cancelled') budget.stopped = 'cancelled';
+  });
+  const chosen = (best ?? fallback) as { state: OuterState; score: number } | null;
+  return chosen?.state ?? null;
 }
 
 function planScore(ctx: Ctx, plan: Plan, prof: Profile): number {
@@ -605,27 +683,13 @@ export function optimize(input: OptimizationInput, options: OptimizeOptions = {}
       else if (sub.stopped === 'timeLimit' && now() > budget.deadline) budget.stopped = 'timeLimit';
     });
 
-    // Single stock type: every paper type is cut from one stock format only. Try each combination of
-    // (one stock per material) and keep the best of them as its own plan.
-    if (budget.stopped === 'completed' || budget.stopped === 'timeLimit') {
-      const combos = singleStockCombos(ctx);
+    // "Tek Tabaka": every paper type is cut from one stock format with ONE layout repeated n times (the
+    // order is covered, extra pieces may result). Falls back to one format with several layouts.
+    if (budget.stopped !== 'cancelled') {
       const base = started + (totalMs * profiles.length) / slots;
-      const prof = PROFILES[0]!;
-      let best: { state: OuterState; score: number } | null = null;
-      combos.forEach((allowed, c) => {
-        if (budget.stopped === 'cancelled') return;
-        const restricted: Ctx = { ...ctx, orientations: ctx.orientations.map((o, j) => (allowed.has(j) ? o : o.map(() => []))) };
-        const sub: SearchBudget = { ...budget, stopped: 'completed', deadline: Math.max(now(), base) + (totalMs / slots) * ((c + 1) / combos.length) };
-        const top = runOuter(restricted, restart(restricted, [], prof), width, prof, sub)[0];
-        budget.nodes += sub.nodes;
-        if (sub.stopped === 'cancelled') budget.stopped = 'cancelled';
-        if (!top) return;
-        const score = finalScore(restricted, top);
-        if (!best || score < best.score) best = { state: top, score };
-      });
-      const found = best as { state: OuterState; score: number } | null;
-      if (found) {
-        const plan = buildPlan(ctx, found.state, prof);
+      const state = singleLayoutState(ctx, singleStockCombos(ctx), budget, Math.max(now(), base), totalMs / slots, width);
+      if (state) {
+        const plan = buildPlan(ctx, state, PROFILES[0]!);
         candidates.push({ ...plan, id: 'plan-single-stock', label: 'single-stock', objective: { profile: 'single-stock', score: plan.objective.score } });
       }
     }
@@ -652,6 +716,7 @@ export function optimize(input: OptimizationInput, options: OptimizeOptions = {}
     (p) => p.totals.wasteArea,
     (p) => -p.totals.offcutArea,
     (p) => p.totals.cuts,
+    (p) => p.sheets.length, // fewest layouts ("kalıp"): fewer set-ups are easier and cheaper in a print shop
   ];
   const keep = new Set<(typeof scored)[number]>();
   for (const key of criteria) {

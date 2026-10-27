@@ -73,7 +73,7 @@ export function PlanView({ plan, input, settings, meta, actions, stacked = false
           }}
           variant="scrollable"
           scrollButtons="auto"
-          aria-label="Tabakalar"
+          aria-label="Kalıplar"
           sx={{ borderBottom: 1, borderColor: 'divider' }}
         >
           {plan.sheets.map((s, i) => (

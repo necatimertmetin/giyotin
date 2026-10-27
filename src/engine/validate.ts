@@ -159,10 +159,10 @@ export function validatePlan(plan: Plan, input: OptimizationInput): string[] {
   // Demand reconciliation.
   for (const piece of input.pieces) {
     const n = placed.get(piece.id) ?? 0;
-    if (n > piece.quantity) errors.push(`piece ${piece.name} placed ${n}× but only ${piece.quantity} demanded`);
+    if (n > piece.quantity + (plan.overproduced?.[piece.id] ?? 0)) errors.push(`piece ${piece.name} placed ${n}× but only ${piece.quantity} demanded`);
     if ((plan.placed[piece.id] ?? 0) !== n) errors.push(`plan.placed mismatch for ${piece.name}`);
     const missing = plan.unfulfilled.find((u) => u.pieceId === piece.id)?.quantity ?? 0;
-    if (missing !== piece.quantity - n) errors.push(`unfulfilled mismatch for ${piece.name}`);
+    if (missing !== Math.max(0, piece.quantity - n)) errors.push(`unfulfilled mismatch for ${piece.name}`);
   }
   if (plan.fulfilled !== (plan.unfulfilled.length === 0)) errors.push('fulfilled flag inconsistent');
 

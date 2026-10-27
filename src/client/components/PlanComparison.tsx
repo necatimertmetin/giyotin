@@ -13,7 +13,7 @@ interface Props {
   horizontal?: boolean;
 }
 
-type Criterion = 'sheets' | 'material' | 'cost' | 'waste' | 'offcut' | 'cuts';
+type Criterion = 'molds' | 'sheets' | 'material' | 'cost' | 'waste' | 'offcut' | 'cuts';
 type Best = Record<Criterion, Set<string>>;
 
 /** "Plan 1", "Plan 2" … for ordinary plans (numbered without gaps); the single-stock plan is just "Tek Tabaka". */
@@ -25,6 +25,7 @@ export function planName(plans: Plan[], id: string): string {
 
 /** A plan is named after what it is actually best at in this comparison, never after how it was found. */
 const BEST_LABELS: Array<[Criterion, string]> = [
+  ['molds', 'En az kalıp'],
   ['sheets', 'En az tabaka'],
   ['cost', 'En ucuz'],
   ['material', 'En az sarf'],
@@ -42,6 +43,7 @@ function bestOf(plans: Plan[]): Best {
     return new Set(vals.filter((x) => Math.abs(x.v - target) < 1e-6).map((x) => x.id));
   };
   return {
+    molds: pick((p) => p.sheets.length, 'min'),
     sheets: pick((p) => p.totals.sheetCount, 'min'),
     material: pick((p) => p.totals.stockArea, 'min'),
     cost: plans.every((p) => p.totals.cost !== null) ? pick((p) => p.totals.cost, 'min') : new Set(),
@@ -94,6 +96,7 @@ export function PlanComparison({ plans, selectedId, onSelect, horizontal = false
               {tags.length === 0 && <Typography variant="caption" color="text.secondary">Alternatif</Typography>}
             </Stack>
             <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(4, minmax(0, 1fr))', gap: 0.5 }}>
+              <Cell label="Kalıp" value={fmtInt(p.sheets.length)} good={isBest('molds')} />
               <Cell label="Tabaka" value={fmtInt(p.totals.sheetCount)} good={isBest('sheets')} />
               <Cell label="Sarf" value={fmtArea(p.totals.stockArea)} good={isBest('material')} />
               <Cell label="Maliyet" value={p.totals.cost === null ? '—' : fmtMoney(p.totals.cost)} good={isBest('cost')} />

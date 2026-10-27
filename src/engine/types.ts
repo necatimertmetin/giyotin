@@ -198,6 +198,8 @@ export interface Plan {
   placed: Record<string, number>;
   unfulfilled: Unfulfilled[];
   fulfilled: boolean;
+  /** Pieces cut beyond the demanded quantity (pieceId → extra copies); only the single-layout plan has any. */
+  overproduced?: Record<string, number>;
   objective: PlanObjective;
 }
 

@@ -302,6 +302,8 @@ describe('alternatives', () => {
     expect(r.plans.indexOf(single!)).toBe(1);
     expect(single!.fulfilled).toBe(true);
     expect(Object.keys(single!.totals.sheetsByStock)).toHaveLength(1);
+    expect(single!.sheets).toHaveLength(1); // one layout (kalıp), repeated
+    expect(validatePlan(single!, inp)).toEqual([]);
   });
 });
 
