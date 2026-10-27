@@ -17,7 +17,6 @@ test('the static build works without any server: seed data, plan, confirm, persi
   await page.getByRole('link', { name: 'Yeni Kesim İşi' }).click();
   await page.getByTestId('order-select').click();
   await page.getByRole('option', { name: /Broşür seti/ }).click();
-  await page.getByTestId('next-step').click();
   await expect(page.getByTestId('results')).toBeVisible({ timeout: 60_000 });
   await expect(page.getByTestId('fulfilled-banner').first()).toContainText('tamamen karşılanabiliyor');
 

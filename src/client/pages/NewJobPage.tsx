@@ -1,4 +1,4 @@
-import { Alert, Autocomplete, Box, Button, Paper, Stack, Step, StepButton, Stepper, TextField, Typography } from '@mui/material';
+import { Alert, Autocomplete, Box, Button, Paper, Stack, TextField, Typography } from '@mui/material';
 import AddIcon from '@mui/icons-material/Add';
 import SaveIcon from '@mui/icons-material/SaveOutlined';
 import DeleteIcon from '@mui/icons-material/DeleteOutline';
@@ -18,8 +18,6 @@ import { fmtDuration, fmtNum } from '../format';
 import { useLoad, useToast } from '../hooks';
 import { issueText } from '../labels';
 
-const STEPS = ['Sipariş', 'Kesim ayarları ve planlar'];
-
 /** Search effort is not a user setting: a wide beam and a generous time limit always apply. */
 const SEARCH = { searchWidth: 6, maxRuntimeMs: 8000 } as const;
 
@@ -30,7 +28,6 @@ export function NewJobPage(): ReactElement {
   const orders = useLoad(api.orders.list);
   const profiles = useLoad(api.profiles.list);
 
-  const [step, setStep] = useState(0);
   const [settings, setSettings] = useState<CuttingSettings>(DEFAULT_SETTINGS);
   const [orderId, setOrderId] = useState<number | null>(null);
   const [orderName, setOrderName] = useState('');
@@ -61,12 +58,12 @@ export function NewJobPage(): ReactElement {
   const ranSignature = useRef<string | null>(null);
   const optimizeRef = useRef<() => Promise<void>>(async () => undefined);
   const outdated = run !== null && ranSignature.current !== signature;
-  // Plans are calculated as soon as the settings page opens and again whenever the order or a setting changes.
+  // Plans are calculated as soon as the order is valid and again whenever the order or a setting changes.
   useEffect(() => {
-    if (step !== 1 || !valid || ranSignature.current === signature) return;
+    if (!valid || ranSignature.current === signature) return;
     const t = setTimeout(() => void optimizeRef.current(), run ? 900 : 150);
     return () => clearTimeout(t);
-  }, [signature, step, valid, run]);
+  }, [signature, valid, run]);
 
   const loadOrder = (o: OrderDto | null): void => {
     setRun(null);
@@ -80,7 +77,6 @@ export function NewJobPage(): ReactElement {
   const optimize = async (): Promise<void> => {
     if (!valid) {
       setError('Önce sipariş satırlarındaki hataları düzeltin (ürün adı, ölçüler ve adet gerekli).');
-      setStep(0);
       return;
     }
     ranSignature.current = signature;
@@ -148,28 +144,12 @@ export function NewJobPage(): ReactElement {
     }
   };
 
-  const goTo = (target: number): void => {
-    if (target >= 1 && !valid) {
-      setError('Devam etmek için sipariş satırlarındaki hataları düzeltin (ürün adı, ölçüler ve adet gerekli).');
-      return;
-    }
-    setError(null);
-    setStep(target);
-  };
-
   return (
     <>
       <PageHeader title="Yeni Kesim İşi" subtitle="Siparişi girin, kesim ayarlarını örnek kalıpta görerek belirleyin ve planları karşılaştırın. Önizleme stoğu değiştirmez; yalnızca onayladığınızda stok düşülür." />
-      <Stepper nonLinear activeStep={step} sx={{ mb: 3, maxWidth: 640 }}>
-        {STEPS.map((label, i) => (
-          <Step key={label} completed={i < step}>
-            <StepButton color="inherit" onClick={() => goTo(i)} data-testid={`step-${i}`}>{label}</StepButton>
-          </Step>
-        ))}
-      </Stepper>
       <ErrorNote message={error} />
 
-      {step === 0 && (
+      <Stack spacing={3}>
         <Stack spacing={2}>
           <Stack direction={{ xs: 'column', md: 'row' }} spacing={1.5} alignItems={{ md: 'center' }}>
             <Autocomplete
@@ -189,12 +169,9 @@ export function NewJobPage(): ReactElement {
           <OrderEditor lines={lines} onChange={setLines} stock={stock.data ?? []} materials={materials} settings={settings} />
           <Stack direction="row" justifyContent="space-between">
             <Button startIcon={<AddIcon />} onClick={() => setLines([...lines, newLine()])} data-testid="add-line">Ürün satırı ekle</Button>
-            <Button variant="contained" size="large" onClick={() => goTo(1)} data-testid="next-step">Kesim ayarlarına geç →</Button>
           </Stack>
         </Stack>
-      )}
 
-      {step === 1 && (
         <SettingsStep
           settings={settings}
           onChange={setSettings}
@@ -203,7 +180,6 @@ export function NewJobPage(): ReactElement {
           lines={lines}
           stock={stock.data ?? []}
           running={running}
-          onBack={() => setStep(0)}
           onRun={() => void optimize()}
           onCancel={() => abortRef.current?.abort()}
           hasResult={run !== null}
@@ -246,7 +222,7 @@ export function NewJobPage(): ReactElement {
             ) : null
           }
         />
-      )}
+      </Stack>
     </>
   );
 }

@@ -18,7 +18,6 @@ interface Props {
   lines: DraftLine[];
   stock: StockItemDto[];
   running: boolean;
-  onBack: () => void;
   onRun: () => void;
   onCancel: () => void;
   /** Rendered in the "Planlar" tab once an optimisation has run; null before that. */
@@ -39,7 +38,7 @@ function Card({ n, title, hint, children }: { n: number; title: string; hint: st
 }
 
 /** Settings on the left; on the right a live sample sheet and, after a run, the alternative plans. */
-export function SettingsStep({ settings, onChange, profiles, onProfilesChanged, lines, stock, running, onBack, onRun, onCancel, results, hasResult, planCount }: Props): ReactElement {
+export function SettingsStep({ settings, onChange, profiles, onProfilesChanged, lines, stock, running, onRun, onCancel, results, hasResult, planCount }: Props): ReactElement {
   const set = (patch: Partial<CuttingSettings>): void => onChange({ ...settings, ...patch });
   const margins = edgeMarginsOf(settings);
   const blade = settings.bladeLength ?? 0;
@@ -63,7 +62,6 @@ export function SettingsStep({ settings, onChange, profiles, onProfilesChanged, 
           <Typography color="text.secondary">Planlar otomatik hesaplanır; soldaki ayarı değiştirdikçe sağdaki örnek kesim ve alternatif planlar güncellenir.</Typography>
         </Box>
         <Stack direction="row" spacing={1}>
-          <Button onClick={onBack} data-testid="back-to-order">← Siparişe dön</Button>
           {running && <Button color="inherit" onClick={onCancel} data-testid="cancel-run">İptal</Button>}
           <Button variant="contained" size="large" onClick={onRun} disabled={running} startIcon={running ? <CircularProgress size={18} color="inherit" /> : undefined} data-testid="run-optimizer">
             {running ? 'Hesaplanıyor…' : 'Yeniden hesapla'}
