@@ -2,7 +2,7 @@ import { Alert, Box, Paper, Stack, Typography } from '@mui/material';
 import CheckCircleIcon from '@mui/icons-material/CheckCircle';
 import WarningAmberIcon from '@mui/icons-material/WarningAmber';
 import type { ReactElement, ReactNode } from 'react';
-import type { OptimizationInput, OptimizationResult, Plan } from '../../engine';
+import { cutSteps, type OptimizationInput, type OptimizationResult, type Plan } from '../../engine';
 import { FONT_MONO } from '../theme';
 import { fmtArea, fmtDuration, fmtInt, fmtMoney, fmtNum, fmtPercent } from '../format';
 
@@ -55,7 +55,7 @@ export function PlanStats({ plan, input, meta }: Props): ReactElement {
           <Stat label="Tabaka" value={`${fmtInt(t.sheetCount)} · ${fmtArea(t.stockArea)}`} />
           <Stat label="Kullanım" value={fmtPercent(t.utilization)} tone={t.utilization >= 0.85 ? 'good' : t.utilization < 0.7 ? 'warn' : undefined} />
           <Stat label="Maliyet" value={t.cost === null ? '—' : fmtMoney(t.cost)} />
-          <Stat label="Kesim" value={fmtInt(t.cuts)} />
+          <Stat label="Kesim adımı" value={fmtInt(cutSteps(plan))} />
           <Stat label="Fire" value={fmtArea(t.wasteArea)} tone="bad" />
           <Stat label="Artık" value={fmtArea(t.offcutArea)} tone="good" />
           <Stat label="Bıçak payı" value={fmtArea(t.kerfArea)} />

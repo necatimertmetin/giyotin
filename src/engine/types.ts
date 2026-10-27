@@ -179,6 +179,9 @@ export interface SheetPlan {
   stats: SheetStats;
 }
 
+/** Cut steps of a plan: every layout is cut once for its whole stack of sheets. */
+export const cutSteps = (plan: { sheets: Array<{ stats: { cuts: number } }> }): number => plan.sheets.reduce((c, sh) => c + sh.stats.cuts, 0);
+
 export interface PlanTotals {
   stockArea: number;
   pieceArea: number;
