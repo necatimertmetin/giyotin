@@ -75,7 +75,7 @@ export function ConfirmPlanDialog({ open, plan, input, busy, onClose, onConfirm 
                 }
                 label={
                   <Typography variant="body2" sx={{ fontFamily: FONT_MONO }}>
-                    Tabaka {o.sheetIndex + 1}: {fmtNum(o.width)}×{fmtNum(o.height)} mm × {fmtInt(o.quantity)} · {fmtArea(o.width * o.height)}
+                    Kalıp {o.sheetIndex + 1}: {fmtNum(o.width)}×{fmtNum(o.height)} mm × {fmtInt(o.quantity)} · {fmtArea(o.width * o.height)}
                   </Typography>
                 }
               />

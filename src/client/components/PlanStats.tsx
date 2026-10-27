@@ -37,7 +37,13 @@ export function PlanStats({ plan, input, meta }: Props): ReactElement {
           Sipariş <b>tamamen karşılanamıyor</b>. Karşılanamayan miktarlar aşağıda listelenmiştir.
         </Alert>
       )}
+      {plan.overproduced && (
+        <Alert severity="info" data-testid="overproduced-note">
+          Tek kalıp için fazla üretim: {input.pieces.filter((p) => plan.overproduced?.[p.id]).map((p) => `${p.name} +${fmtInt(plan.overproduced?.[p.id] ?? 0)}`).join(', ')} adet.
+        </Alert>
+      )}
       <Box sx={{ display: 'grid', gridTemplateColumns: { xs: 'repeat(2, 1fr)', md: 'repeat(4, 1fr)' }, gap: 1.5 }}>
+        <Metric label="Kalıp sayısı" value={fmtInt(plan.sheets.length)} hint="farklı kesim düzeni" />
         <Metric label="Kullanılan tabaka" value={fmtInt(t.sheetCount)} hint={fmtArea(t.stockArea)} />
         <Metric label="Malzeme kullanımı" value={fmtPercent(t.utilization)} hint="bitmiş parça / sarf edilen stok" tone={t.utilization >= 0.85 ? 'good' : t.utilization < 0.7 ? 'warn' : undefined} />
         <Metric label="Bitmiş parça alanı" value={fmtArea(t.pieceArea)} />

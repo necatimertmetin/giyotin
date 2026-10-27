@@ -102,7 +102,7 @@ export function JobPage(): ReactElement {
               <Stack spacing={1}>
                 {data.offcuts.map((o) => (
                   <Stack key={o.id} direction="row" spacing={1.5} alignItems="center" flexWrap="wrap" useFlexGap data-testid="job-offcut-row">
-                    <Typography sx={{ fontFamily: FONT_MONO, minWidth: 220 }}>Tabaka {o.sheetIndex + 1}: {fmtNum(o.width)} × {fmtNum(o.height)} mm × {fmtInt(o.quantity)}</Typography>
+                    <Typography sx={{ fontFamily: FONT_MONO, minWidth: 220 }}>Kalıp {o.sheetIndex + 1}: {fmtNum(o.width)} × {fmtNum(o.height)} mm × {fmtInt(o.quantity)}</Typography>
                     {o.status === 'pending' && (
                       <>
                         <Button size="small" variant="contained" onClick={() => void act(() => api.jobs.addOffcut(data.id, o.id), 'Artık envantere eklendi.')} data-testid="add-offcut">Envantere ekle</Button>

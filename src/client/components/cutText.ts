@@ -32,4 +32,4 @@ export function describeCut(cut: CutNode, kerfSetting: number): CutDescription {
 }
 
 export const sheetLabel = (sheet: SheetPlan, index: number): string =>
-  `Tabaka ${index + 1} · ${fmtNum(sheet.width)}×${fmtNum(sheet.height)}${sheet.copies > 1 ? ` · ×${sheet.copies}` : ''}`;
+  `Kalıp ${index + 1} · ${fmtNum(sheet.width)}×${fmtNum(sheet.height)}${sheet.copies > 1 ? ` · ×${sheet.copies} tabaka` : ''}`;
