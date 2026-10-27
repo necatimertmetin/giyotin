@@ -744,9 +744,7 @@ export function optimize(input: OptimizationInput, options: OptimizeOptions = {}
       if (tag && !existing.tags?.includes(tag)) existing.tags = [...(existing.tags ?? []), tag];
     } else ranked.push({ ...plan, tags: tag ? [tag] : [] });
   };
-  addPlan(fulfilledFirst[0], null);
   const cheapKey = (p: Plan): number => (p.totals.cost !== null ? p.totals.cost : p.totals.stockArea);
-  addPlan([...fulfilledFirst].sort((x, y) => cheapKey(x) - cheapKey(y) || x.objective.score - y.objective.score)[0], 'cheapest');
   for (let k = 1; k <= MAX_LAYOUTS; k++) {
     const state = layouts.get(k);
     if (!state) continue;
@@ -755,6 +753,11 @@ export function optimize(input: OptimizationInput, options: OptimizeOptions = {}
     // Listed under its real layout count (a search for "3" may find a plan with fewer).
     addPlan(plan, `layouts-${plan.sheets.length}`);
   }
+  // The recommended plan is the first one: the fewest layouts that work (1, else 2, else 3). Without any layout
+  // plan the balanced plan is recommended. The balanced plan otherwise goes last.
+  if (ranked.length === 0) addPlan(fulfilledFirst[0], 'balanced');
+  addPlan([...fulfilledFirst].sort((x, y) => cheapKey(x) - cheapKey(y) || x.objective.score - y.objective.score)[0], 'cheapest');
+  addPlan(fulfilledFirst[0], 'balanced');
   const plans = ranked.map((plan, i) => ({ ...plan, id: `plan-${i + 1}`, label: plan.objective.profile }));
 
   // A plan with no sheets (nothing placeable) is still reported so the UI can show the issues.

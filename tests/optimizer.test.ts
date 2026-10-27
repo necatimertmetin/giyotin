@@ -321,6 +321,8 @@ describe('alternatives', () => {
     const cheapest = r.plans.reduce((m, p) => Math.min(m, p.totals.cost ?? Infinity), Infinity);
     expect(r.plans.find((p) => p.tags?.includes('cheapest'))!.totals.cost).toBe(cheapest);
     const one = r.plans.find((p) => p.tags?.includes('layouts-1'));
+    expect(r.plans[0]).toBe(one); // the recommended plan is the single-layout one
+    expect(r.plans.at(-1)!.tags).toContain('balanced');
     expect(one).toBeDefined();
     expect(one!.fulfilled).toBe(true);
     expect(one!.sheets).toHaveLength(1);
