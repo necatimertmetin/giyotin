@@ -15,7 +15,7 @@ import { PlanComparison, planName } from '../components/PlanComparison';
 import { PlanView } from '../components/PlanView';
 import { SettingsStep } from '../components/SettingsStep';
 import { fmtDuration, fmtNum } from '../format';
-import { useLoad, useToast } from '../hooks';
+import { useLoad, useMachine, useToast } from '../hooks';
 import { issueText } from '../labels';
 
 /** Search effort is not a user setting: a wide beam and a generous time limit always apply. */
@@ -45,6 +45,11 @@ export function NewJobPage(): ReactElement {
     api.settings.get().then(setSettings).catch(() => undefined);
   }, []);
 
+  // The blade length is a property of the machine (Ayarlar), not of the job.
+  const { machine } = useMachine();
+  const blade = machine?.bladeLength;
+  const effective = useMemo<CuttingSettings>(() => ({ ...settings, bladeLength: blade }), [settings, blade]);
+
   const materials = useMemo(() => {
     const m = new Map<string, string>();
     (stock.data ?? []).forEach((s) => m.set(s.materialKey, materialLabelOf(s)));
@@ -54,7 +59,7 @@ export function NewJobPage(): ReactElement {
   const valid = lines.length > 0 && lines.every(isValid);
 
   // Any change to the order or the settings makes a shown result out of date.
-  const signature = JSON.stringify([lines.map(toDto), settings]);
+  const signature = JSON.stringify([lines.map(toDto), effective]);
   const ranSignature = useRef<string | null>(null);
   const optimizeRef = useRef<() => Promise<void>>(async () => undefined);
   const outdated = run !== null && ranSignature.current !== signature;
@@ -86,7 +91,7 @@ export function NewJobPage(): ReactElement {
     setRunning(true);
     setError(null);
     try {
-      const result = await api.optimize({ orderId, lines: lines.map(toDto), settings: { ...settings, ...SEARCH } }, controller.signal);
+      const result = await api.optimize({ orderId, lines: lines.map(toDto), settings: { ...effective, ...SEARCH } }, controller.signal);
       setRun(result);
       setSelectedPlan(result.result.plans[0]?.id ?? '');
       // The last used settings become the starting point of the next job.
@@ -166,15 +171,16 @@ export function NewJobPage(): ReactElement {
             <Button startIcon={<SaveIcon />} variant="outlined" color="secondary" onClick={saveOrder} data-testid="save-order">Kaydet</Button>
             {orderId && <Button startIcon={<DeleteIcon />} color="error" onClick={deleteOrder}>Sil</Button>}
           </Stack>
-          <OrderEditor lines={lines} onChange={setLines} stock={stock.data ?? []} materials={materials} settings={settings} />
+          <OrderEditor lines={lines} onChange={setLines} stock={stock.data ?? []} materials={materials} settings={effective} />
           <Stack direction="row" justifyContent="space-between">
             <Button startIcon={<AddIcon />} onClick={() => setLines([...lines, newLine()])} data-testid="add-line">Ürün satırı ekle</Button>
           </Stack>
         </Stack>
 
         <SettingsStep
-          settings={settings}
-          onChange={setSettings}
+          settings={effective}
+          machineName={machine?.name ?? null}
+          onChange={({ bladeLength: _, ...s }) => setSettings(s)}
           profiles={profiles.data ?? []}
           onProfilesChanged={profiles.reload}
           running={running}

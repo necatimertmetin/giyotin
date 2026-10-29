@@ -4,6 +4,7 @@ import type {
   CustomPaperDto,
   JobDto,
   JobSummaryDto,
+  MachineDto,
   OptimizeRequest,
   OrderDto,
   OrderInput,
@@ -66,6 +67,10 @@ export const api = {
   settings: {
     get: () => request<CuttingSettings>('GET', '/api/settings'),
     save: (s: CuttingSettings) => request<CuttingSettings>('PUT', '/api/settings', s),
+  },
+  machine: {
+    get: () => request<MachineDto | null>('GET', '/api/machine'),
+    save: (m: MachineDto) => request<MachineDto>('PUT', '/api/machine', m),
   },
   profiles: {
     list: () => request<SettingsProfileDto[]>('GET', '/api/profiles'),

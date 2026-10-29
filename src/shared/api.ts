@@ -140,6 +140,13 @@ export interface SettingsProfileDto {
   updatedAt: string;
 }
 
+/** The guillotine the shop cuts on; entered once and applied to every job. */
+export interface MachineDto {
+  name: string | null;
+  /** Longest cut the blade can make, mm. */
+  bladeLength: number;
+}
+
 export interface ApiError {
   message: string;
 }

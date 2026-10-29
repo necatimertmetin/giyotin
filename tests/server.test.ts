@@ -217,6 +217,17 @@ describe('settings and papers', () => {
     expect((await json<typeof settings>('GET', '/api/settings')).kerf).toBe(2.5);
   });
 
+  it('stores the machine once and plans every job with its blade length', async () => {
+    expect(await json<unknown>('GET', '/api/machine')).toBeNull();
+    expect(await status('PUT', '/api/machine', { name: 'Polar', bladeLength: 50 })).toBe(400);
+    expect(await json('PUT', '/api/machine', { name: ' Polar 115 ', bladeLength: 1150 })).toEqual({ name: 'Polar 115', bladeLength: 1150 });
+    expect(await json('GET', '/api/machine')).toEqual({ name: 'Polar 115', bladeLength: 1150 });
+    await json('POST', '/api/stock', stockBody());
+    // The request's own blade length is ignored once a machine is configured.
+    const run = await json<RunDto>('POST', '/api/optimize', { orderId: null, lines: [line()], settings: { ...settings, bladeLength: 300 } });
+    expect(run.settings.bladeLength).toBe(1150);
+  });
+
   it('saves settings profiles, updates by name and deletes them', async () => {
     const a = await json<{ id: number; name: string; settings: typeof settings }>('POST', '/api/profiles', { name: 'Hassas', settings: { ...settings, kerf: 2 } });
     expect(a.settings.kerf).toBe(2);

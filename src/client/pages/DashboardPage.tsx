@@ -5,7 +5,7 @@ import { api } from '../api';
 import { ErrorNote, PageHeader } from '../components/common';
 import { Metric } from '../components/PlanStats';
 import { fmtArea, fmtDate, fmtInt, fmtNum, fmtPercent } from '../format';
-import { useLoad, useToast } from '../hooks';
+import { useLoad, useMachine, useToast } from '../hooks';
 import { FONT_MONO } from '../theme';
 
 export function DashboardPage(): ReactElement {
@@ -17,6 +17,7 @@ export function DashboardPage(): ReactElement {
   const [resetOpen, setResetOpen] = useState(false);
   const [typed, setTyped] = useState('');
   const [resetting, setResetting] = useState(false);
+  const machine = useMachine();
   const canReset = typed.trim().toLocaleUpperCase('tr-TR') === 'SİL';
 
   const resetAll = async (): Promise<void> => {
@@ -29,6 +30,7 @@ export function DashboardPage(): ReactElement {
       stock.reload();
       jobs.reload();
       orders.reload();
+      machine.reload();
     } catch (e) {
       toast(e instanceof Error ? e.message : 'Silinemedi.', 'error');
     } finally {

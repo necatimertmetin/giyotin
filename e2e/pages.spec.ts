@@ -11,6 +11,12 @@ test('the static build works without any server: seed data, plan, confirm, persi
   await page.goto('./');
   await expect(page).toHaveTitle('Giyotin');
   await expect(page.getByTestId('local-note')).toBeVisible();
+  // First visit: the guillotine has to be entered before anything else.
+  await expect(page.getByTestId('machine-setup')).toBeVisible();
+  await expect(page.getByTestId('machine-save')).toBeDisabled();
+  await page.getByTestId('machine-blade').fill('1150');
+  await page.getByTestId('machine-save').click();
+  await expect(page.getByTestId('machine-setup')).toBeHidden();
   // Sample data is seeded into the browser database on the first visit.
   await expect(page.getByText('Kullanılabilir tabaka')).toBeVisible();
 

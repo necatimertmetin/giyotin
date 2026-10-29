@@ -4,7 +4,7 @@ import { createRoot } from 'react-dom/client';
 import { BrowserRouter, HashRouter } from 'react-router-dom';
 import { App } from './App';
 import { STATIC_MODE } from './api';
-import { ToastProvider } from './hooks';
+import { MachineProvider, ToastProvider } from './hooks';
 import { theme } from './theme';
 
 const Router = STATIC_MODE ? HashRouter : BrowserRouter;
@@ -16,7 +16,9 @@ createRoot(document.getElementById('root')!).render(
       <ToastProvider>
         {/* Static hosting cannot rewrite deep links, so the browser-only build uses hash URLs. */}
         <Router>
-          <App />
+          <MachineProvider>
+            <App />
+          </MachineProvider>
         </Router>
       </ToastProvider>
     </ThemeProvider>

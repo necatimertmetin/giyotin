@@ -21,6 +21,11 @@ async function fillLine(page: Page, index: number, name: string, width: string, 
 
 test.describe.configure({ mode: 'serial' });
 
+// The machine is asked for on first start; these tests configure it through the API instead.
+test.beforeAll(async ({ request }) => {
+  await request.put('/api/machine', { data: { name: null, bladeLength: 1600 } });
+});
+
 test('order → plan → preview → confirm → offcut reuse', async ({ page }) => {
   // 1. Inventory: one 700×500 sheet.
   await page.goto('/envanter');
@@ -186,6 +191,11 @@ test('the whole database can be wiped, but only after typing the confirmation wo
   await expect(page.getByTestId('reset-confirm')).toBeEnabled();
   await page.getByTestId('reset-confirm').click();
   await expect(page.getByText('Tüm veriler silindi.')).toBeVisible();
+  // The machine went with the data, so it is asked for again.
+  await expect(page.getByTestId('machine-setup')).toBeVisible();
+  await page.getByTestId('machine-blade').fill('1600');
+  await page.getByTestId('machine-save').click();
+  await expect(page.getByTestId('machine-setup')).toBeHidden();
 
   const stock = await (await request.get('/api/stock')).json();
   expect(stock).toHaveLength(0);

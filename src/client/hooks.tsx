@@ -1,6 +1,7 @@
 import { Alert, Snackbar } from '@mui/material';
 import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactElement, type ReactNode } from 'react';
 import { api } from './api';
+import type { MachineDto } from '../shared/api';
 
 export interface LoadState<T> {
   data: T | null;
@@ -103,4 +104,25 @@ export function ToastProvider({ children }: { children: ReactNode }): ReactEleme
       </Snackbar>
     </ToastContext.Provider>
   );
+}
+
+interface MachineState {
+  /** undefined while loading, null when the machine has not been entered yet. */
+  machine: MachineDto | null | undefined;
+  save: (m: MachineDto) => Promise<void>;
+  reload: () => void;
+}
+const MachineContext = createContext<MachineState>({ machine: undefined, save: async () => undefined, reload: () => undefined });
+export const useMachine = (): MachineState => useContext(MachineContext);
+
+/** The guillotine is configured once for the whole app; every page reads it from here. */
+export function MachineProvider({ children }: { children: ReactNode }): ReactElement {
+  const [machine, setMachine] = useState<MachineDto | null | undefined>(undefined);
+  const [tick, setTick] = useState(0);
+  useEffect(() => {
+    api.machine.get().then((m) => setMachine(m ?? null), () => setMachine(null));
+  }, [tick]);
+  const save = useCallback(async (m: MachineDto) => setMachine(await api.machine.save(m)), []);
+  const reload = useCallback(() => setTick((t) => t + 1), []);
+  return <MachineContext.Provider value={{ machine, save, reload }}>{children}</MachineContext.Provider>;
 }

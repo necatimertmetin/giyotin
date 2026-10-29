@@ -4,12 +4,16 @@ import RemoveIcon from '@mui/icons-material/Remove';
 import { type ReactElement, type ReactNode } from 'react';
 import { edgeMarginsOf, type CuttingSettings, type EdgeMargins } from '../../engine';
 import type { SettingsProfileDto } from '../../shared/api';
+import { Link } from 'react-router-dom';
+import { fmtNum } from '../format';
 import { NumberField } from './common';
 import { ProfileBar } from './ProfileBar';
 import { KerfIllustration, MarginIllustration, OffcutIllustration } from './SettingIllustrations';
 
 interface Props {
   settings: CuttingSettings;
+  /** Name of the configured guillotine; its blade length is already in `settings`. */
+  machineName: string | null;
   onChange: (s: CuttingSettings) => void;
   profiles: SettingsProfileDto[];
   onProfilesChanged: () => void;
@@ -32,7 +36,7 @@ function Card({ n, title, hint, children }: { n: number; title: string; hint: st
 }
 
 /** Settings on the left; on the right a live sample sheet and, after a run, the alternative plans. */
-export function SettingsStep({ settings, onChange, profiles, onProfilesChanged, running, onRun, onCancel, results, planCount }: Props): ReactElement {
+export function SettingsStep({ settings, machineName, onChange, profiles, onProfilesChanged, running, onRun, onCancel, results, planCount }: Props): ReactElement {
   const set = (patch: Partial<CuttingSettings>): void => onChange({ ...settings, ...patch });
   const margins = edgeMarginsOf(settings);
   const blade = settings.bladeLength ?? 0;
@@ -96,12 +100,12 @@ export function SettingsStep({ settings, onChange, profiles, onProfilesChanged, 
           </Card>
 
           <Card n={3} title="Giyotin bıçak boyu" hint="Bir kesim en fazla bu uzunlukta olabilir; bundan geniş bir kağıt tek hamlede kesilemez.">
-            <Stack direction="row" spacing={1.5} alignItems="center">
-              <ToggleButtonGroup exclusive size="small" value={blade > 0 ? 'limit' : 'none'} onChange={(_, v: 'none' | 'limit' | null) => v && set({ bladeLength: v === 'limit' ? 760 : undefined })}>
-                <ToggleButton value="none" sx={{ px: 1.5 }} data-testid="blade-none">Sınırsız</ToggleButton>
-                <ToggleButton value="limit" sx={{ px: 1.5 }} data-testid="blade-limit">Sınırlı</ToggleButton>
-              </ToggleButtonGroup>
-              {blade > 0 && <NumberField value={blade} onChange={(v) => set({ bladeLength: v && v > 0 ? v : undefined })} unit="mm" sx={{ width: 120 }} inputProps={{ 'aria-label': 'Giyotin bıçak boyu', 'data-testid': 'setting-blade' }} />}
+            <Stack direction="row" spacing={1.5} alignItems="center" justifyContent="space-between">
+              <Typography data-testid="machine-blade-info">
+                <b>{blade > 0 ? `${fmtNum(blade)} mm` : 'Girilmedi'}</b>
+                {machineName && <Typography component="span" color="text.secondary"> · {machineName}</Typography>}
+              </Typography>
+              <Button component={Link} to="/ayarlar" size="small">Ayarlar'da değiştir</Button>
             </Stack>
           </Card>
 

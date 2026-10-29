@@ -46,6 +46,9 @@ export function buildRoutes(db: Db, optimizer: Optimizer): Route[] {
     { method: 'GET', path: '/api/settings', handler: () => ok(svc.getSettings(db)) },
     { method: 'PUT', path: '/api/settings', handler: (r) => ok(svc.saveSettings(db, r.body)) },
 
+    { method: 'GET', path: '/api/machine', handler: () => ok(svc.getMachine(db)) },
+    { method: 'PUT', path: '/api/machine', handler: (r) => ok(svc.saveMachine(db, r.body)) },
+
     // Settings profiles
     { method: 'GET', path: '/api/profiles', handler: () => ok(svc.listProfiles(db)) },
     {
@@ -85,7 +88,10 @@ export function buildRoutes(db: Db, optimizer: Optimizer): Route[] {
       handler: async (r) => {
         const body = b<Partial<OptimizeRequest>>(r);
         const lines = svc.parseLines(body.lines);
-        const settings = svc.parseSettings(body.settings);
+        const parsed = svc.parseSettings(body.settings);
+        // The configured machine decides the blade length, whatever the request says.
+        const machine = svc.getMachine(db);
+        const settings = machine ? { ...parsed, bladeLength: machine.bladeLength } : parsed;
         const { input, versions } = svc.buildOptimizationInput(db, lines, settings);
         const orderName = body.orderId ? svc.getOrder(db, body.orderId).name : 'Adsız sipariş';
         try {

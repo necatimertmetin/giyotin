@@ -6,6 +6,7 @@ import InventoryIcon from '@mui/icons-material/Inventory2Outlined';
 import ContentCutIcon from '@mui/icons-material/ContentCut';
 import RecyclingIcon from '@mui/icons-material/RecyclingOutlined';
 import HistoryIcon from '@mui/icons-material/HistoryOutlined';
+import SettingsIcon from '@mui/icons-material/SettingsOutlined';
 import { useState, type ReactElement } from 'react';
 import { Link, Route, Routes, useLocation } from 'react-router-dom';
 import { DashboardPage } from './pages/DashboardPage';
@@ -14,6 +15,8 @@ import { InventoryPage } from './pages/InventoryPage';
 import { NewJobPage } from './pages/NewJobPage';
 import { OffcutsPage } from './pages/OffcutsPage';
 import { PlanPage } from './pages/PlanPage';
+import { SettingsPage } from './pages/SettingsPage';
+import { MachineSetupDialog } from './components/MachineForm';
 import { STATIC_MODE } from './api';
 import { LogoMark } from './components/Logo';
 import { GRAPHITE } from './theme';
@@ -24,6 +27,7 @@ const NAV = [
   { to: '/yeni-is', label: 'Yeni Kesim İşi', icon: <ContentCutIcon />, match: (p: string) => p.startsWith('/yeni-is') || p.startsWith('/plan') },
   { to: '/artiklar', label: 'Artık Parçalar', icon: <RecyclingIcon />, match: (p: string) => p.startsWith('/artiklar') },
   { to: '/gecmis', label: 'Kesim Geçmişi', icon: <HistoryIcon />, match: (p: string) => p.startsWith('/gecmis') },
+  { to: '/ayarlar', label: 'Ayarlar', icon: <SettingsIcon />, match: (p: string) => p.startsWith('/ayarlar') },
 ];
 
 const DRAWER = 232;
@@ -113,9 +117,11 @@ export function App(): ReactElement {
           <Route path="/artiklar" element={<OffcutsPage />} />
           <Route path="/gecmis" element={<HistoryPage />} />
           <Route path="/gecmis/:jobId" element={<JobPage />} />
+          <Route path="/ayarlar" element={<SettingsPage />} />
           <Route path="*" element={<Typography>Sayfa bulunamadı.</Typography>} />
         </Routes>
       </Box>
+      <MachineSetupDialog />
     </Box>
   );
 }

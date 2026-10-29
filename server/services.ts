@@ -21,6 +21,7 @@ import {
   type OrderInput,
   type OrderLineDto,
   type RunDto,
+  type MachineDto,
   type SettingsProfileDto,
   type StockInput,
   type StockItemDto,
@@ -128,6 +129,31 @@ export function saveSettings(db: Db, raw: unknown): CuttingSettings {
   const s = parseSettings(raw);
   db.prepare('INSERT INTO app_settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value').run('cutting', JSON.stringify(s));
   return s;
+}
+
+// ---------------------------------------------------------------------------------------------
+// Machine
+// ---------------------------------------------------------------------------------------------
+
+/** The configured guillotine, or null before the user has entered it. */
+export function getMachine(db: Db): MachineDto | null {
+  const r = row(db.prepare('SELECT value FROM app_settings WHERE key = ?').get('machine'));
+  if (!r) return null;
+  try {
+    const m = JSON.parse(str(r.value)) as Partial<MachineDto>;
+    return typeof m.bladeLength === 'number' && m.bladeLength > 0 ? { name: m.name ?? null, bladeLength: m.bladeLength } : null;
+  } catch {
+    return null;
+  }
+}
+
+export function saveMachine(db: Db, raw: unknown): MachineDto {
+  const r = (raw ?? {}) as Record<string, unknown>;
+  const blade = r.bladeLength;
+  if (typeof blade !== 'number' || !Number.isFinite(blade) || blade < 100 || blade > 5000) return bad('Bıçak boyu 100–5000 mm arasında olmalı.');
+  const m: MachineDto = { name: text(r.name, 'Makine adı')?.slice(0, 60) ?? null, bladeLength: Math.round(blade * 100) / 100 };
+  db.prepare('INSERT INTO app_settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value').run('machine', JSON.stringify(m));
+  return m;
 }
 
 // ---------------------------------------------------------------------------------------------
