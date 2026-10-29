@@ -29,6 +29,9 @@ interface Props {
   height?: number | string;
   /** Compact thumbnail without controls or interaction. */
   thumbnail?: boolean;
+  /** Controlled "turned by 90°" view (the PDF follows it); by default the viewer decides and keeps it itself. */
+  sideways?: boolean;
+  onSidewaysChange?: (sideways: boolean) => void;
 }
 
 const INK = '#1f2933';
@@ -36,7 +39,7 @@ const INK = '#1f2933';
 const sameNode = (a: { x: number; y: number; w: number; h: number }, b: { x: number; y: number; w: number; h: number }): boolean =>
   a.x === b.x && a.y === b.y && a.w === b.w && a.h === b.h;
 
-export function SheetViewer({ sheet, pieces, selection, onSelect, step = null, overlay, height = 'min(72vh, 720px)', thumbnail = false }: Props): ReactElement {
+export function SheetViewer({ sheet, pieces, selection, onSelect, step = null, overlay, height = 'min(72vh, 720px)', thumbnail = false, sideways: sidewaysProp, onSidewaysChange }: Props): ReactElement {
   const containerRef = useRef<HTMLDivElement>(null);
   const svgRef = useRef<SVGSVGElement>(null);
   const [size, setSize] = useState({ w: 800, h: 560 });
@@ -49,7 +52,12 @@ export function SheetViewer({ sheet, pieces, selection, onSelect, step = null, o
   const W = sheet.width;
   const H = sheet.height;
   // The sheet is shown with its long side horizontal by default (wide screens waste less space); the user can turn it back.
-  const [sideways, setSideways] = useState(() => !thumbnail && H > W);
+  const [sidewaysState, setSidewaysState] = useState(() => !thumbnail && H > W);
+  const sideways = sidewaysProp ?? sidewaysState;
+  const setSideways = (update: (v: boolean) => boolean): void => {
+    setSidewaysState(update(sideways));
+    onSidewaysChange?.(update(sideways));
+  };
   const rot = sideways && !thumbnail;
   const DW = rot ? H : W; // displayed width / height
   const DH = rot ? W : H;

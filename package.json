@@ -25,7 +25,6 @@
     "@fastify/static": "^10.1.7",
     "@mui/icons-material": "^7.3.11",
     "@mui/material": "^7.3.11",
-    "@pdf-lib/fontkit": "^1.1.1",
     "fastify": "^5.12.7",
     "pdf-lib": "^1.17.1",
     "pdfjs-dist": "^6.4.299",

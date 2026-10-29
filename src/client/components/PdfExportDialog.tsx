@@ -2,8 +2,9 @@ import { Alert, Button, CircularProgress, Dialog, DialogActions, DialogContent, 
 import DownloadIcon from '@mui/icons-material/FileDownloadOutlined';
 import PrintIcon from '@mui/icons-material/PrintOutlined';
 import { useState, type ReactElement } from 'react';
-import type { OptimizationInput, Plan } from '../../engine';
-import type { PdfPaper } from '../export/layoutPdf';
+import type { Plan } from '../../engine';
+import type { PdfImage, PdfPaper } from '../export/layoutPdf';
+import type { PieceInfo } from './viewerTypes';
 import { fmtNum } from '../format';
 import { useToast } from '../hooks';
 
@@ -11,31 +12,35 @@ interface Props {
   open: boolean;
   onClose: () => void;
   plan: Plan;
-  input: OptimizationInput;
-  /** Order name, printed in the header and used for the file name. */
+  /** Products of the plan; their artwork goes onto the pieces. */
+  pieces: Map<string, PieceInfo>;
+  /** Order name, used for the document title and the file name. */
   title: string;
-  planLabel: string;
   sheetIndex: number;
+  /** Whether layout i is shown turned by 90° in the viewer; the PDF shows it the same way. */
+  sidewaysOf: (i: number) => boolean;
+}
+
+/** Product previews are WebP/PNG data URLs; PDF takes PNG or JPEG, so they are redrawn as PNG. */
+async function toPng(dataUrl: string): Promise<PdfImage> {
+  const img = new Image();
+  img.src = dataUrl;
+  await img.decode();
+  const canvas = document.createElement('canvas');
+  canvas.width = img.naturalWidth;
+  canvas.height = img.naturalHeight;
+  canvas.getContext('2d')!.drawImage(img, 0, 0);
+  const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, 'image/png'));
+  if (!blob) throw new Error('ürün görseli dönüştürülemedi');
+  return { bytes: new Uint8Array(await blob.arrayBuffer()), type: 'png' };
 }
 
 async function makePdf(props: Props, paper: PdfPaper, all: boolean): Promise<Blob> {
-  const [{ buildLayoutPdf }, regularUrl, boldUrl] = await Promise.all([
-    import('../export/layoutPdf'),
-    import('pdfjs-dist/standard_fonts/LiberationSans-Regular.ttf?url').then((m) => m.default),
-    import('pdfjs-dist/standard_fonts/LiberationSans-Bold.ttf?url').then((m) => m.default),
-  ]);
-  const font = async (url: string): Promise<Uint8Array> => new Uint8Array(await (await fetch(url)).arrayBuffer());
-  const [regular, bold] = await Promise.all([font(regularUrl), font(boldUrl)]);
-  const sheets = props.plan.sheets.map((sheet, i) => ({ sheet, number: i + 1 })).filter((_, i) => all || i === props.sheetIndex);
-  const bytes = await buildLayoutPdf({
-    title: props.title,
-    planLabel: props.planLabel,
-    sheets,
-    totalSheets: props.plan.sheets.length,
-    pieceNames: new Map(props.input.pieces.map((p) => [p.id, p.name])),
-    paper,
-    fonts: { regular, bold },
-  });
+  const { buildLayoutPdf } = await import('../export/layoutPdf');
+  const images = new Map<string, PdfImage>();
+  for (const [id, info] of props.pieces) if (info.artwork) images.set(id, await toPng(info.artwork));
+  const sheets = props.plan.sheets.map((sheet, i) => ({ sheet, sideways: props.sidewaysOf(i) })).filter((_, i) => all || i === props.sheetIndex);
+  const bytes = await buildLayoutPdf({ title: props.title, sheets, paper, images });
   return new Blob([bytes as BlobPart], { type: 'application/pdf' });
 }
 
@@ -97,7 +102,7 @@ export function PdfExportDialog(props: Props): ReactElement {
           <div>
             <Typography variant="subtitle2">Kağıt boyutu</Typography>
             <RadioGroup value={paper} onChange={(e) => setPaper(e.target.value as PdfPaper)}>
-              <FormControlLabel value="a4" control={<Radio />} label="A4 — kalıp sayfaya sığdırılır, başlık ve açıklamalarla" data-testid="pdf-paper-a4" />
+              <FormControlLabel value="a4" control={<Radio />} label="A4 — kalıp sayfaya sığdırılır" data-testid="pdf-paper-a4" />
               <FormControlLabel
                 value="sheet"
                 control={<Radio />}

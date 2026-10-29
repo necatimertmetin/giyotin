@@ -7,7 +7,6 @@ import { fmtArea, fmtInt, fmtNum, fmtPercent } from '../format';
 import { CutCaption, CutPlayer } from './CutPlayer';
 import PrintIcon from '@mui/icons-material/PrintOutlined';
 import { PdfExportDialog } from './PdfExportDialog';
-import { planName } from './PlanComparison';
 import { PlanStats } from './PlanStats';
 import { SelectionInfo } from './SelectionInfo';
 import { SheetViewer } from './SheetViewer';
@@ -35,11 +34,15 @@ export function PlanView({ plan, input, settings, meta, actions, stacked = false
   const [selection, setSelection] = useState<Selection | null>(null);
   const [step, setStep] = useState<number | null>(null);
   const [pdfOpen, setPdfOpen] = useState(false);
+  // Which layouts the user turned in the viewer; the default shows the long side horizontally. The PDF follows it.
+  const [turned, setTurned] = useState<Map<number, boolean>>(new Map());
+  const sidewaysOf = (i: number): boolean => turned.get(i) ?? (plan.sheets[i] ? plan.sheets[i]!.height > plan.sheets[i]!.width : false);
 
   useEffect(() => {
     setSheetIndex(0);
     setSelection(null);
     setStep(null);
+    setTurned(new Map());
   }, [plan]);
 
   const sheet = plan.sheets[sheetIndex] ?? plan.sheets[0];
@@ -84,7 +87,7 @@ export function PlanView({ plan, input, settings, meta, actions, stacked = false
 
         <Box sx={{ p: 2, display: 'grid', gridTemplateColumns: stacked ? '1fr' : { xs: '1fr', lg: 'minmax(0, 1fr) 360px' }, gap: 2 }}>
           <Box sx={{ minWidth: 0 }}>
-            <SheetViewer sheet={sheet} pieces={pieces} selection={selection} onSelect={setSelection} step={step} overlay={<CutPlayer sheet={sheet} step={step} onStep={setStep} />} />
+            <SheetViewer sheet={sheet} pieces={pieces} selection={selection} onSelect={setSelection} step={step} sideways={sidewaysOf(sheetIndex)} onSidewaysChange={(v) => setTurned(new Map(turned).set(sheetIndex, v))} overlay={<CutPlayer sheet={sheet} step={step} onStep={setStep} />} />
             <CutCaption sheet={sheet} kerf={settings.kerf} step={step} />
             <Stack direction="row" spacing={1.5} flexWrap="wrap" useFlexGap sx={{ mt: 1.5 }} alignItems="center">
               <Chip size="small" label={`Kullanım ${fmtPercent(sheet.stats.pieceArea / sheet.stats.sheetArea)}`} color="primary" />
@@ -100,7 +103,7 @@ export function PlanView({ plan, input, settings, meta, actions, stacked = false
               <LegendSwatch css="repeating-linear-gradient(90deg,#c2410c 0 5px,transparent 5px 8px)" label="Kesim çizgisi" />
               <Button size="small" variant="outlined" startIcon={<PrintIcon />} onClick={() => setPdfOpen(true)} data-testid="open-pdf">PDF / Yazdır</Button>
             </Stack>
-            <PdfExportDialog open={pdfOpen} onClose={() => setPdfOpen(false)} plan={plan} input={input} title={title} planLabel={planName([plan], plan.id)} sheetIndex={sheetIndex} />
+            <PdfExportDialog open={pdfOpen} onClose={() => setPdfOpen(false)} plan={plan} pieces={pieces} title={title} sheetIndex={sheetIndex} sidewaysOf={sidewaysOf} />
           </Box>
 
           <Box sx={{ minWidth: 0 }}>
