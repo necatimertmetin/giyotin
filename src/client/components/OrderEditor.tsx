@@ -27,6 +27,7 @@ import { allowedOrientations, edgeMarginsOf, toUnits, type CuttingSettings, type
 import type { OrderLineDto, StockItemDto } from '../../shared/api';
 import { api } from '../api';
 import { rememberArtwork, useArtworks, useToast } from '../hooks';
+import { saveArtworkSource } from '../import/artworkSources';
 import { ACCEPTED_EXTENSIONS, readArtworkFile } from '../import/importArtwork';
 import { GRAIN_PIECE_LABEL } from '../labels';
 import { NumberField } from './common';
@@ -154,6 +155,8 @@ export function OrderEditor({ lines, onChange, stock, materials, settings }: Pro
             const saved = await api.artworks.create(a.thumbnail);
             rememberArtwork(saved.id, saved.data);
             artworkId = saved.id;
+            // The vector original stays in this browser for printing; without it the PDF uses the preview image.
+            if (a.source) await saveArtworkSource(saved.id, a.source).catch(() => undefined);
           }
           added.push(newLine({ name: a.name, width: a.width, height: a.height, quantity: 1, artworkId }));
           if (a.note) notes.push(`${a.name}: ${a.note}`);

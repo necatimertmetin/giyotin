@@ -1,3 +1,4 @@
+import type { ArtworkSource } from './artworkSources';
 import { baseName, kindOf, pageBox, pieceBox, postScriptBox, postScriptPart, ptToMm, svgSize, type Box } from './artworkFormat';
 
 /** One product read from an artwork file (a file holds one product per page/artboard). */
@@ -10,6 +11,8 @@ export interface ImportedArtwork {
   thumbnail: string | null;
   /** Something the user should double-check, in Turkish. */
   note: string | null;
+  /** Vector original for printing (PDF/AI pages only). */
+  source: ArtworkSource | null;
 }
 
 /** Longest side of a stored preview, px. */
@@ -50,6 +53,7 @@ async function readPdf(bytes: Uint8Array, name: string): Promise<ImportedArtwork
   try {
     const raw = new TextDecoder('latin1').decode(bytes);
     const pages = Math.min(doc.numPages, MAX_PAGES);
+    const vector = await vectorPages(bytes);
     const out: ImportedArtwork[] = [];
     for (let p = 1; p <= pages; p++) {
       const page = await doc.getPage(p);
@@ -79,6 +83,8 @@ async function readPdf(bytes: Uint8Array, name: string): Promise<ImportedArtwork
         width: turned ? h : w,
         height: turned ? w : h,
         thumbnail: toDataUrl(canvas, crop),
+        // Rotated pages would need the page rotation applied too; those print from the preview image instead.
+        source: !turned ? await vector(p - 1, box) : null,
         note:
           doc.numPages > MAX_PAGES && p === pages
             ? `Dosyada ${doc.numPages} sayfa var; ilk ${MAX_PAGES} sayfa alındı.`
@@ -91,6 +97,28 @@ async function readPdf(bytes: Uint8Array, name: string): Promise<ImportedArtwork
   } finally {
     void task.destroy();
   }
+}
+
+/**
+ * Cuts single pages out of the PDF for printing. Illustrator keeps its own editing data next to each page
+ * (/PieceInfo), often larger than the drawing; it is dropped. Returns null for pages that cannot be copied.
+ */
+async function vectorPages(bytes: Uint8Array): Promise<(index: number, box: Box) => Promise<ArtworkSource | null>> {
+  const { PDFDocument, PDFName } = await import('pdf-lib');
+  const src = await PDFDocument.load(bytes, { ignoreEncryption: true, updateMetadata: false }).catch(() => null);
+  return async (index, box) => {
+    if (!src) return null;
+    try {
+      const page = src.getPage(index);
+      for (const key of ['PieceInfo', 'Metadata', 'Thumb']) page.node.delete(PDFName.of(key));
+      const out = await PDFDocument.create();
+      const [copy] = await out.copyPages(src, [index]);
+      out.addPage(copy);
+      return { pdf: await out.save(), box };
+    } catch {
+      return null;
+    }
+  };
 }
 
 function readPostScript(bytes: Uint8Array, name: string, isAi: boolean): ImportedArtwork {
@@ -107,6 +135,7 @@ function readPostScript(bytes: Uint8Array, name: string, isAi: boolean): Importe
     note: isAi
       ? 'Illustrator dosyası PDF uyumlu kaydedilmemiş: ölçü çizimin sınırlarından alındı, önizleme yok. Ölçüyü kontrol edin.'
       : 'Ölçü çizimin sınırlarından (BoundingBox) alındı, önizleme yok. Ölçüyü kontrol edin.',
+    source: null,
   };
 }
 
@@ -126,9 +155,9 @@ async function readSvg(text: string, name: string): Promise<ImportedArtwork> {
     ctx.fillStyle = '#fff';
     ctx.fillRect(0, 0, canvas.width, canvas.height);
     ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-    return { name, ...size, thumbnail: toDataUrl(canvas, null), note: null };
+    return { name, ...size, thumbnail: toDataUrl(canvas, null), note: null, source: null };
   } catch {
-    return { name, ...size, thumbnail: null, note: 'SVG önizlemesi çizilemedi; ölçü alındı.' };
+    return { name, ...size, thumbnail: null, note: 'SVG önizlemesi çizilemedi; ölçü alındı.', source: null };
   } finally {
     URL.revokeObjectURL(url);
   }

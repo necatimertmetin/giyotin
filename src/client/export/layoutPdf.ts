@@ -1,4 +1,4 @@
-import { PDFDocument, degrees, rgb, type PDFImage, type PDFPage } from 'pdf-lib';
+import { PDFArray, PDFDict, PDFDocument, PDFImage, PDFRef, PDFStream, degrees, rgb, type PDFEmbeddedPage, type PDFObject, type PDFPage } from 'pdf-lib';
 import { collectCuts, collectPieces, type SheetPlan } from '../../engine';
 
 /** 'a4': every layout scaled onto an A4 page; 'sheet': the page is the sheet itself, 1:1. */
@@ -9,36 +9,51 @@ export interface PdfImage {
   type: 'png' | 'jpg';
 }
 
+/** A product's artwork: its vector original (a one-page PDF and the piece's box on it, in pt) or a raster image. */
+export type PdfArtwork = ({ kind: 'image' } & PdfImage) | { kind: 'vector'; pdf: Uint8Array; box: [number, number, number, number] };
+
 export interface LayoutPdfInput {
   title: string;
   /** `sideways`: drawn turned by 90° clockwise, as the viewer shows tall sheets. */
   sheets: Array<{ sheet: SheetPlan; sideways: boolean }>;
   paper: PdfPaper;
   /** Product artwork by piece id, in the product's declared width × height. */
-  images: Map<string, PdfImage>;
+  artworks: Map<string, PdfArtwork>;
+  /** Draw the cut lines (off: only the artwork, e.g. for printing the sheet itself). */
+  cutLines: boolean;
 }
+
+type Drawable = PDFImage | PDFEmbeddedPage;
 
 const PT = 72 / 25.4;
 const A4 = { w: 210, h: 297 };
 const BLACK = rgb(0, 0, 0);
 
 /**
- * The sheet as it is cut, nothing else: the cut lines and, where a product has artwork, the
- * artwork itself. No labels, numbers, kerf or offcut colouring. Vector lines straight from the cut tree.
+ * The sheet as it is cut, nothing else: the cut lines and, where a product has artwork, the artwork itself – as
+ * vectors when its original page is known. No labels, numbers, kerf or offcut colouring.
  */
 export async function buildLayoutPdf(input: LayoutPdfInput): Promise<Uint8Array> {
   const doc = await PDFDocument.create();
   doc.setTitle(input.title);
   doc.setCreator('Giyotin Kesim Planlayıcı');
-  const embedded = new Map<string, PDFImage>();
-  for (const [id, img] of input.images) embedded.set(id, img.type === 'png' ? await doc.embedPng(img.bytes) : await doc.embedJpg(img.bytes));
+  const embedded = new Map<string, Drawable>();
+  for (const [id, art] of input.artworks) {
+    if (art.kind === 'vector') {
+      // Embedded once as a form XObject and placed on every copy of the piece, so the file grows by one drawing.
+      const src = await PDFDocument.load(art.pdf, { ignoreEncryption: true, updateMetadata: false });
+      const [left, bottom, right, top] = art.box;
+      embedded.set(id, await doc.embedPage(src.getPage(0), { left, bottom, right, top }));
+    } else embedded.set(id, art.type === 'png' ? await doc.embedPng(art.bytes) : await doc.embedJpg(art.bytes));
+  }
+  const opts = { cutLines: input.cutLines };
 
   for (const { sheet, sideways } of input.sheets) {
     // Size of the sheet as drawn on the page.
     const dw = sideways ? sheet.height : sheet.width;
     const dh = sideways ? sheet.width : sheet.height;
     if (input.paper === 'sheet') {
-      drawSheet(doc.addPage([dw * PT, dh * PT]), sheet, { x: 0, y: 0, scale: 1, sideways }, embedded);
+      drawSheet(doc.addPage([dw * PT, dh * PT]), sheet, { x: 0, y: 0, scale: 1, sideways }, embedded, opts);
       continue;
     }
     const landscape = dw >= dh;
@@ -47,9 +62,33 @@ export async function buildLayoutPdf(input: LayoutPdfInput): Promise<Uint8Array>
     // Edge to edge: the sheet touches the page on its tighter side.
     const scale = Math.min(pw / dw, ph / dh);
     const frame = { x: (pw - dw * scale) / 2, y: (ph - dh * scale) / 2, scale, sideways };
-    drawSheet(doc.addPage([pw * PT, ph * PT]), sheet, frame, embedded);
+    drawSheet(doc.addPage([pw * PT, ph * PT]), sheet, frame, embedded, opts);
   }
+  await doc.flush();
+  dropUnused(doc);
   return doc.save();
+}
+
+/**
+ * Embedding a page copies its original content streams in, then writes them again merged into one drawing; the
+ * originals stay behind unused (doubling the size: 27 MB more for spark.pdf). pdf-lib saves every object it holds,
+ * so whatever cannot be reached from the document catalog is removed here.
+ */
+function dropUnused(doc: PDFDocument): void {
+  const ctx = doc.context;
+  const seen = new Set<string>();
+  const visit = (obj: PDFObject | undefined): void => {
+    if (obj instanceof PDFRef) {
+      if (seen.has(obj.tag)) return;
+      seen.add(obj.tag);
+      visit(ctx.lookup(obj));
+    } else if (obj instanceof PDFDict) for (const [, v] of obj.entries()) visit(v);
+    else if (obj instanceof PDFArray) for (const v of obj.asArray()) visit(v);
+    else if (obj instanceof PDFStream) visit(obj.dict);
+  };
+  visit(ctx.trailerInfo.Root);
+  visit(ctx.trailerInfo.Info);
+  for (const [ref] of ctx.enumerateIndirectObjects()) if (!seen.has(ref.tag)) ctx.delete(ref);
 }
 
 interface Frame {
@@ -62,7 +101,7 @@ interface Frame {
   sideways: boolean;
 }
 
-function drawSheet(page: PDFPage, sheet: SheetPlan, f: Frame, images: Map<string, PDFImage>): void {
+function drawSheet(page: PDFPage, sheet: SheetPlan, f: Frame, images: Map<string, Drawable>, opts: { cutLines: boolean }): void {
   const H = page.getHeight();
   // Sheet coordinates (mm, y down) to PDF points (y up), through the optional quarter turn.
   const at = (x: number, y: number): { x: number; y: number } => {
@@ -86,10 +125,17 @@ function drawSheet(page: PDFPage, sheet: SheetPlan, f: Frame, images: Map<string
     const turns = (p.rotated ? 1 : 0) + (f.sideways ? 1 : 0);
     const w = right - left;
     const h = top - bottom;
-    if (turns === 0) page.drawImage(img, { x: left, y: bottom, width: w, height: h });
-    else if (turns === 1) page.drawImage(img, { x: left, y: top, width: h, height: w, rotate: degrees(-90) });
-    else page.drawImage(img, { x: right, y: top, width: w, height: h, rotate: degrees(180) });
+    const place =
+      turns === 0
+        ? { x: left, y: bottom, width: w, height: h }
+        : turns === 1
+          ? { x: left, y: top, width: h, height: w, rotate: degrees(-90) }
+          : { x: right, y: top, width: w, height: h, rotate: degrees(180) };
+    if (img instanceof PDFImage) page.drawImage(img, place);
+    else page.drawPage(img, place);
   }
+
+  if (!opts.cutLines) return;
 
   const line = (x1: number, y1: number, x2: number, y2: number): void => page.drawLine({ start: at(x1, y1), end: at(x2, y2), thickness, color: BLACK });
   // Edge trim is cut too: the border of the usable area, where it is inside the sheet.

@@ -3,7 +3,8 @@ import DownloadIcon from '@mui/icons-material/FileDownloadOutlined';
 import PrintIcon from '@mui/icons-material/PrintOutlined';
 import { useState, type ReactElement } from 'react';
 import type { Plan } from '../../engine';
-import type { PdfImage, PdfPaper } from '../export/layoutPdf';
+import type { PdfArtwork, PdfImage, PdfPaper } from '../export/layoutPdf';
+import { getArtworkSource } from '../import/artworkSources';
 import type { PieceInfo } from './viewerTypes';
 import { fmtNum } from '../format';
 import { useToast } from '../hooks';
@@ -14,6 +15,8 @@ interface Props {
   plan: Plan;
   /** Products of the plan; their artwork goes onto the pieces. */
   pieces: Map<string, PieceInfo>;
+  /** Artwork id per piece id, to find the vector original. */
+  artworkIds: Map<string, string>;
   /** Order name, used for the document title and the file name. */
   title: string;
   sheetIndex: number;
@@ -35,13 +38,24 @@ async function toPng(dataUrl: string): Promise<PdfImage> {
   return { bytes: new Uint8Array(await blob.arrayBuffer()), type: 'png' };
 }
 
-async function makePdf(props: Props, paper: PdfPaper, all: boolean): Promise<Blob> {
+/** The PDF, and the names of products printed from their preview image because no vector original was found. */
+async function makePdf(props: Props, paper: PdfPaper, all: boolean, cutLines: boolean): Promise<{ blob: Blob; raster: string[] }> {
   const { buildLayoutPdf } = await import('../export/layoutPdf');
-  const images = new Map<string, PdfImage>();
-  for (const [id, info] of props.pieces) if (info.artwork) images.set(id, await toPng(info.artwork));
+  const artworks = new Map<string, PdfArtwork>();
+  const raster: string[] = [];
+  for (const [id, info] of props.pieces) {
+    if (!info.artwork) continue;
+    const artworkId = props.artworkIds.get(id);
+    const source = artworkId ? await getArtworkSource(artworkId) : null;
+    if (source) artworks.set(id, { kind: 'vector', pdf: source.pdf, box: source.box });
+    else {
+      artworks.set(id, { kind: 'image', ...(await toPng(info.artwork)) });
+      raster.push(info.name);
+    }
+  }
   const sheets = props.plan.sheets.map((sheet, i) => ({ sheet, sideways: props.sidewaysOf(i) })).filter((_, i) => all || i === props.sheetIndex);
-  const bytes = await buildLayoutPdf({ title: props.title, sheets, paper, images });
-  return new Blob([bytes as BlobPart], { type: 'application/pdf' });
+  const bytes = await buildLayoutPdf({ title: props.title, sheets, paper, artworks, cutLines });
+  return { blob: new Blob([bytes as BlobPart], { type: 'application/pdf' }), raster };
 }
 
 const fileName = (title: string): string => `${title.replace(/[\\/:*?"<>|]+/g, '').trim() || 'kesim'} - kalip.pdf`;
@@ -70,6 +84,7 @@ export function PdfExportDialog(props: Props): ReactElement {
   const toast = useToast();
   const [paper, setPaper] = useState<PdfPaper>('a4');
   const [all, setAll] = useState(true);
+  const [cutLines, setCutLines] = useState(true);
   const [busy, setBusy] = useState<'download' | 'print' | null>(null);
   const many = plan.sheets.length > 1;
   const sheet = plan.sheets[sheetIndex] ?? plan.sheets[0];
@@ -77,7 +92,8 @@ export function PdfExportDialog(props: Props): ReactElement {
   const run = async (action: 'download' | 'print'): Promise<void> => {
     setBusy(action);
     try {
-      const blob = await makePdf(props, paper, many && all);
+      const { blob, raster } = await makePdf(props, paper, many && all, cutLines);
+      if (raster.length > 0) toast(`Önizleme görseliyle basıldı (vektörel değil): ${raster.join(', ')}. Vektörel baskı, bu tarayıcıda eklenmiş PDF/AI dosyalarında olur.`, 'info');
       if (action === 'print') printBlob(blob);
       else {
         const a = document.createElement('a');
@@ -109,6 +125,13 @@ export function PdfExportDialog(props: Props): ReactElement {
                 label={sheet ? `Kalıp ebadında — gerçek ölçü 1:1 (${fmtNum(sheet.width)} × ${fmtNum(sheet.height)} mm)` : 'Kalıp ebadında — gerçek ölçü 1:1'}
                 data-testid="pdf-paper-sheet"
               />
+            </RadioGroup>
+          </div>
+          <div>
+            <Typography variant="subtitle2">Kesim çizgileri</Typography>
+            <RadioGroup row value={cutLines ? 'on' : 'off'} onChange={(e) => setCutLines(e.target.value === 'on')}>
+              <FormControlLabel value="on" control={<Radio />} label="Olsun" data-testid="pdf-lines-on" />
+              <FormControlLabel value="off" control={<Radio />} label="Olmasın" data-testid="pdf-lines-off" />
             </RadioGroup>
           </div>
           {many && (

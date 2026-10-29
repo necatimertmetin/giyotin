@@ -34,6 +34,7 @@ export function PlanView({ plan, input, settings, meta, actions, stacked = false
   const [selection, setSelection] = useState<Selection | null>(null);
   const [step, setStep] = useState<number | null>(null);
   const [pdfOpen, setPdfOpen] = useState(false);
+  const artworkIds = useMemo(() => new Map(input.pieces.flatMap((p) => (p.artworkId ? [[p.id, p.artworkId] as const] : []))), [input.pieces]);
   // Which layouts the user turned in the viewer; the default shows the long side horizontally. The PDF follows it.
   const [turned, setTurned] = useState<Map<number, boolean>>(new Map());
   const sidewaysOf = (i: number): boolean => turned.get(i) ?? (plan.sheets[i] ? plan.sheets[i]!.height > plan.sheets[i]!.width : false);
@@ -103,7 +104,7 @@ export function PlanView({ plan, input, settings, meta, actions, stacked = false
               <LegendSwatch css="repeating-linear-gradient(90deg,#c2410c 0 5px,transparent 5px 8px)" label="Kesim çizgisi" />
               <Button size="small" variant="outlined" startIcon={<PrintIcon />} onClick={() => setPdfOpen(true)} data-testid="open-pdf">PDF / Yazdır</Button>
             </Stack>
-            <PdfExportDialog open={pdfOpen} onClose={() => setPdfOpen(false)} plan={plan} pieces={pieces} title={title} sheetIndex={sheetIndex} sidewaysOf={sidewaysOf} />
+            <PdfExportDialog open={pdfOpen} onClose={() => setPdfOpen(false)} plan={plan} pieces={pieces} artworkIds={artworkIds} title={title} sheetIndex={sheetIndex} sidewaysOf={sidewaysOf} />
           </Box>
 
           <Box sx={{ minWidth: 0 }}>
