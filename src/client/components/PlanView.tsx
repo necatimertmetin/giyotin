@@ -1,10 +1,13 @@
-import { Box, Chip, Divider, Paper, Stack, Tab, Table, TableBody, TableCell, TableHead, TableRow, Tabs, Typography } from '@mui/material';
+import { Box, Button, Chip, Divider, Paper, Stack, Tab, Table, TableBody, TableCell, TableHead, TableRow, Tabs, Typography } from '@mui/material';
 import { useEffect, useMemo, useState, type ReactElement, type ReactNode } from 'react';
 import { collectPieces, type CuttingSettings, type OptimizationInput, type OptimizationResult, type Plan } from '../../engine';
 import { useArtworks } from '../hooks';
 import { FONT_MONO } from '../theme';
 import { fmtArea, fmtInt, fmtNum, fmtPercent } from '../format';
 import { CutCaption, CutPlayer } from './CutPlayer';
+import PrintIcon from '@mui/icons-material/PrintOutlined';
+import { PdfExportDialog } from './PdfExportDialog';
+import { planName } from './PlanComparison';
 import { PlanStats } from './PlanStats';
 import { SelectionInfo } from './SelectionInfo';
 import { SheetViewer } from './SheetViewer';
@@ -20,15 +23,18 @@ interface Props {
   actions?: ReactNode;
   /** Put the side panel below the viewer (for narrow containers). */
   stacked?: boolean;
+  /** Order name for the PDF header and file name. */
+  title?: string;
 }
 
 /** Cutting plan detail: interactive sheet viewer with a cut animation, the product counts and totals. */
-export function PlanView({ plan, input, settings, meta, actions, stacked = false }: Props): ReactElement {
+export function PlanView({ plan, input, settings, meta, actions, stacked = false, title = 'Kesim planı' }: Props): ReactElement {
   const artworks = useArtworks(input.pieces.map((p) => p.artworkId));
   const pieces = useMemo(() => buildPieceInfo(input.pieces, artworks), [input.pieces, artworks]);
   const [sheetIndex, setSheetIndex] = useState(0);
   const [selection, setSelection] = useState<Selection | null>(null);
   const [step, setStep] = useState<number | null>(null);
+  const [pdfOpen, setPdfOpen] = useState(false);
 
   useEffect(() => {
     setSheetIndex(0);
@@ -92,7 +98,9 @@ export function PlanView({ plan, input, settings, meta, actions, stacked = false
               <LegendSwatch css="repeating-linear-gradient(45deg,#f3d9d6 0 4px,#b4463c 4px 5px)" label="Fire" />
               <LegendSwatch css="#1f2933" label="Kerf" />
               <LegendSwatch css="repeating-linear-gradient(90deg,#c2410c 0 5px,transparent 5px 8px)" label="Kesim çizgisi" />
+              <Button size="small" variant="outlined" startIcon={<PrintIcon />} onClick={() => setPdfOpen(true)} data-testid="open-pdf">PDF / Yazdır</Button>
             </Stack>
+            <PdfExportDialog open={pdfOpen} onClose={() => setPdfOpen(false)} plan={plan} input={input} title={title} planLabel={planName([plan], plan.id)} sheetIndex={sheetIndex} />
           </Box>
 
           <Box sx={{ minWidth: 0 }}>

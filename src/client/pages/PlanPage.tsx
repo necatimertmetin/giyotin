@@ -50,6 +50,7 @@ export function PlanPage(): ReactElement {
       {data && plan && (
         <PlanView
           plan={plan}
+          title={data.orderName}
           input={data.input}
           settings={data.settings}
           meta={data.result}

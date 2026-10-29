@@ -93,6 +93,7 @@ export function JobPage(): ReactElement {
       {data && (
         <PlanView
           plan={data.plan}
+          title={data.orderName}
           input={data.input}
           settings={data.settings}
           actions={

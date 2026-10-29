@@ -215,6 +215,7 @@ export function NewJobPage(): ReactElement {
                   <Typography variant="h6" sx={{ mb: 1 }}>{planName(run.result.plans, plan.id)} — nasıl kesilecek?</Typography>
                   <PlanView
                     plan={plan}
+                    title={orderName.trim() || run.orderName}
                     input={run.input}
                     settings={run.settings}
                     meta={run.result}

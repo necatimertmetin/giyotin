@@ -51,6 +51,20 @@ test('order → plan → preview → confirm → offcut reuse', async ({ page })
   await expect(page.getByTestId('heuristic-note').first()).toContainText('kanıtlanmış değildir');
   await page.screenshot({ path: `${SHOTS}/01-newjob-results.png`, fullPage: true });
 
+  // The layout downloads as PDF, on A4 and at the sheet's real size.
+  for (const paper of ['a4', 'sheet']) {
+    await page.getByTestId('open-pdf').click();
+    await page.getByTestId(`pdf-paper-${paper}`).click();
+    const [download] = await Promise.all([page.waitForEvent('download'), page.getByTestId('pdf-download').click()]);
+    expect(download.suggestedFilename()).toBe('E2E sipariş 1 - kalip.pdf');
+    const path = await download.path();
+    const { readFileSync } = await import('node:fs');
+    const pdf = readFileSync(path!);
+    expect(pdf.subarray(0, 5).toString()).toBe('%PDF-');
+    if (paper === 'sheet') await download.saveAs(`${SHOTS}/kalip-1to1.pdf`);
+    await expect(page.getByTestId('pdf-dialog')).toBeHidden();
+  }
+
   // Preview must not consume stock.
   await page.goto('/envanter');
   await expect(page.getByTestId('stock-row').first()).toContainText('1');
