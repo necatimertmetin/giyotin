@@ -1,4 +1,5 @@
 import type {
+  ArtworkDto,
   ConfirmRequest,
   CustomPaperDto,
   JobDto,
@@ -79,6 +80,10 @@ export const api = {
     create: (body: OrderInput) => request<OrderDto>('POST', '/api/orders', body),
     update: (id: number, body: OrderInput) => request<OrderDto>('PUT', `/api/orders/${id}`, body),
     remove: (id: number) => request<void>('DELETE', `/api/orders/${id}`),
+  },
+  artworks: {
+    create: (data: string) => request<ArtworkDto>('POST', '/api/artworks', { data }),
+    get: (id: string) => request<ArtworkDto>('GET', `/api/artworks/${id}`),
   },
   optimize: (body: OptimizeRequest, signal?: AbortSignal) => request<RunDto>('POST', '/api/optimize', body, signal),
   runs: {

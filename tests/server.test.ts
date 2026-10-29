@@ -45,6 +45,7 @@ const line = (over: Partial<OrderLineDto> = {}): OrderLineDto => ({
   grain: 'any',
   minWidth: null,
   minHeight: null,
+  artworkId: null,
   ...over,
 });
 

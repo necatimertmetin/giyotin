@@ -178,6 +178,8 @@ export function SheetViewer({ sheet, pieces, selection, onSelect, step = null, o
   };
 
   const px = (n: number): number => n / scale; // screen px -> mm
+  // A white outline keeps the labels readable on top of a product preview image.
+  const halo = { stroke: '#fff', strokeWidth: px(3), paintOrder: 'stroke', strokeLinejoin: 'round' } as const;
   // Pattern ids must be unique per viewer: several viewers are mounted at once (a hidden one would win a shared id).
   const uid = useId().replace(/[^A-Za-z0-9_-]/g, '');
   const stepMode = animated;
@@ -312,15 +314,31 @@ export function SheetViewer({ sheet, pieces, selection, onSelect, step = null, o
                 >
                   <title>{`${info?.name ?? n.pieceId}: ${fmtNum(n.w)} × ${fmtNum(n.h)} mm${n.rotated ? ' (90° döndürülmüş)' : ''}`}</title>
                 </rect>
+                {info?.artwork && (
+                  <>
+                    {/* The preview is in the product's declared orientation; a rotated piece turns it by 90°. */}
+                    <image
+                      href={info.artwork}
+                      x={0}
+                      y={0}
+                      width={n.rotated ? n.h : n.w}
+                      height={n.rotated ? n.w : n.h}
+                      preserveAspectRatio="none"
+                      transform={n.rotated ? `translate(${n.x + n.w} ${n.y}) rotate(90)` : `translate(${n.x} ${n.y})`}
+                      pointerEvents="none"
+                    />
+                    <rect x={n.x} y={n.y} width={n.w} height={n.h} fill="none" stroke={info.stroke} strokeWidth={isSel ? 3 : 1} vectorEffect="non-scaling-stroke" pointerEvents="none" />
+                  </>
+                )}
                 {isSel && <rect x={n.x} y={n.y} width={n.w} height={n.h} fill="none" stroke={ACCENT} strokeWidth={3} vectorEffect="non-scaling-stroke" pointerEvents="none" />}
                 {label && sw > 22 && sh > 14 && (
-                  <text transform={unrot(nameAt.x, nameAt.y)} x={nameAt.x} y={nameAt.y} textAnchor="middle" dominantBaseline="central" fontSize={px(nameFs)} fontWeight={700} fill="#111827" pointerEvents="none" fontFamily={FONT_MONO}>
+                  <text transform={unrot(nameAt.x, nameAt.y)} x={nameAt.x} y={nameAt.y} textAnchor="middle" dominantBaseline="central" fontSize={px(nameFs)} fontWeight={700} fill="#111827" pointerEvents="none" fontFamily={FONT_MONO} {...(info?.artwork ? halo : {})}>
                     {pieceLabel}
                     {n.rotated && sw - 8 >= (pieceLabel.length + 2) * nameFs * 0.62 ? ' ↻' : ''}
                   </text>
                 )}
                 {label && sw > 46 && sh > 28 && (
-                  <text transform={unrot(dimsAt.x, dimsAt.y)} x={dimsAt.x} y={dimsAt.y} textAnchor="middle" dominantBaseline="central" fontSize={px(Math.max(9, nameFs * 0.8))} fill="#1f2933" pointerEvents="none" fontFamily={FONT_MONO}>
+                  <text transform={unrot(dimsAt.x, dimsAt.y)} x={dimsAt.x} y={dimsAt.y} textAnchor="middle" dominantBaseline="central" fontSize={px(Math.max(9, nameFs * 0.8))} fill="#1f2933" pointerEvents="none" fontFamily={FONT_MONO} {...(info?.artwork ? halo : {})}>
                     {fmtNum(n.w, 0)}×{fmtNum(n.h, 0)}
                   </text>
                 )}

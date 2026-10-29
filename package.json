@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "private": true,
   "type": "module",
-  "description": "Matbaalar i\u00c3\u0192\u00c2\u00a7in giyotin kesim (guillotine cutting stock) optimizasyon uygulamas\u00c3\u201e\u00c2\u00b1",
+  "description": "Matbaalar iÃƒÂ§in giyotin kesim (guillotine cutting stock) optimizasyon uygulamasÃ„Â±",
   "scripts": {
     "dev": "concurrently -k -n api,web \"npm:dev:server\" \"npm:dev:client\"",
     "dev:server": "tsx watch server/index.ts",
@@ -26,6 +26,7 @@
     "@mui/icons-material": "^7.3.11",
     "@mui/material": "^7.3.11",
     "fastify": "^5.12.7",
+    "pdfjs-dist": "^6.4.299",
     "react": "^19.3.1",
     "react-dom": "^19.3.1",
     "react-router-dom": "^7.18.4",

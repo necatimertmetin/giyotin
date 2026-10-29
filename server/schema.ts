@@ -68,7 +68,14 @@ CREATE TABLE IF NOT EXISTS order_lines (
   material_key TEXT,
   grain TEXT NOT NULL DEFAULT 'any',
   min_width REAL,
-  min_height REAL
+  min_height REAL,
+  artwork_id TEXT
+);
+
+CREATE TABLE IF NOT EXISTS artworks (
+  id TEXT PRIMARY KEY,
+  data TEXT NOT NULL,
+  created_at TEXT NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS setting_profiles (
@@ -140,6 +147,13 @@ CREATE TABLE IF NOT EXISTS job_offcuts (
 CREATE INDEX IF NOT EXISTS idx_stock_kind ON stock_items(kind, deleted_at);
 CREATE INDEX IF NOT EXISTS idx_lines_order ON order_lines(order_id);
 `;
+
+/** Creates missing tables and adds columns that databases from older releases lack. */
+export function initSchema(db: Db): void {
+  db.exec(SCHEMA);
+  const lineColumns = (db.prepare('PRAGMA table_info(order_lines)').all() as Array<{ name: string }>).map((c) => c.name);
+  if (!lineColumns.includes('artwork_id')) db.exec('ALTER TABLE order_lines ADD COLUMN artwork_id TEXT');
+}
 
 /** Run `fn` inside a transaction; any thrown error rolls everything back. */
 export function transaction<T>(db: Db, fn: () => T): T {

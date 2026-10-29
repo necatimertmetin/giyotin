@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import { adaptSqlJs } from '../src/client/local/sqlAdapter';
 import { inlineOptimizer } from '../server/optimizeRunner';
 import { buildRoutes, matchRoute, type Route } from '../server/routes';
-import { SCHEMA } from '../server/schema';
+import { initSchema, SCHEMA } from '../server/schema';
 import { seedIfEmpty } from '../server/seed';
 import { HttpError } from '../server/services';
 import { DEFAULT_SETTINGS } from '../src/engine';
@@ -101,5 +101,43 @@ describe('routes on sql.js', () => {
     expect(stock.length).toBeGreaterThanOrEqual(5);
     const orders = await call<Array<{ lines: unknown[] }>>('GET', '/api/orders');
     expect(orders.length).toBe(2);
+  });
+});
+
+describe('artwork previews', () => {
+  const png = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==';
+
+  it('stores an image, keeps it on the order line and carries it into the run input', async () => {
+    const art = await call<{ id: string; data: string }>('POST', '/api/artworks', { data: png });
+    expect((await call<{ data: string }>('GET', `/api/artworks/${art.id}`)).data).toBe(png);
+
+    const order = await call<{ id: number; lines: Array<{ artworkId: string | null }> }>('POST', '/api/orders', { name: 'Çizimli', notes: null, lines: [{ ...line, artworkId: art.id }, line] });
+    expect(order.lines.map((l) => l.artworkId)).toEqual([art.id, null]);
+
+    await call('POST', '/api/stock', stockBody);
+    const run = await call<RunDto>('POST', '/api/optimize', { orderId: order.id, lines: order.lines, settings });
+    expect(run.input.pieces.map((p) => p.artworkId)).toEqual([art.id, null]);
+  });
+
+  it('rejects anything that is not an image data URL and ignores malformed ids', async () => {
+    expect((await call<{ status: number }>('POST', '/api/artworks', { data: 'javascript:alert(1)' }, [400])).status).toBe(400);
+    expect((await call<{ status: number }>('POST', '/api/artworks', { data: 'data:image/svg+xml;base64,PHN2Zz4=' }, [400])).status).toBe(400);
+    expect((await call<{ status: number }>('GET', '/api/artworks/00000000-0000-0000-0000-000000000000', undefined, [404])).status).toBe(404);
+    const order = await call<{ lines: Array<{ artworkId: string | null }> }>('POST', '/api/orders', { name: 'X', notes: null, lines: [{ ...line, artworkId: '../etc' }] });
+    expect(order.lines[0]!.artworkId).toBeNull();
+  });
+
+  it('adds the artwork column to databases from older releases', async () => {
+    const SQL = await initSqlJs();
+    const old = new SQL.Database();
+    old.exec(SCHEMA.replace(',\n  artwork_id TEXT', ''));
+    old.exec("INSERT INTO orders (name, status, created_at, updated_at) VALUES ('Eski', 'draft', 'x', 'x')");
+    old.exec("INSERT INTO order_lines (order_id, position, name, width, height, quantity) VALUES (1, 0, 'Flyer', 100, 150, 5)");
+    const db = adaptSqlJs(old);
+    initSchema(db);
+    initSchema(db); // idempotent
+    routes = buildRoutes(db, inlineOptimizer);
+    const orders = await call<Array<{ lines: Array<{ name: string; artworkId: string | null }> }>>('GET', '/api/orders');
+    expect(orders[0]!.lines[0]).toMatchObject({ name: 'Flyer', artworkId: null });
   });
 });

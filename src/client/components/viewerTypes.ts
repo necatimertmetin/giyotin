@@ -9,6 +9,8 @@ export interface PieceInfo {
   quantity: number;
   fill: string;
   stroke: string;
+  /** Preview image (data URL) drawn on the piece instead of the plain colour; in the declared width × height. */
+  artwork: string | null;
 }
 
 export type Selection =
@@ -27,7 +29,7 @@ const codeOf = (index: number): string => {
 };
 
 /** Stable, distinguishable colours per product (light fills, dark outlines, dark text works on all). */
-export function buildPieceInfo(pieces: PieceSpec[]): Map<string, PieceInfo> {
+export function buildPieceInfo(pieces: PieceSpec[], artworks: Map<string, string> = new Map()): Map<string, PieceInfo> {
   const map = new Map<string, PieceInfo>();
   pieces.forEach((p, i) => {
     const hue = Math.round((i * 137.508 + 205) % 360);
@@ -40,6 +42,7 @@ export function buildPieceInfo(pieces: PieceSpec[]): Map<string, PieceInfo> {
       quantity: p.quantity,
       fill: `hsl(${hue} 62% 80%)`,
       stroke: `hsl(${hue} 55% 28%)`,
+      artwork: (p.artworkId && artworks.get(p.artworkId)) || null,
     });
   });
   return map;
