@@ -192,3 +192,43 @@ test('the whole database can be wiped, but only after typing the confirmation wo
   await page.goto('/gecmis');
   await expect(page.getByText('Henüz onaylanmış iş yok')).toBeVisible();
 });
+
+test('artwork files dropped on the order become products with size and preview', async ({ page }) => {
+  await page.goto('/envanter');
+  await addSheetStock(page, 'Çizim testi', '700', '500', '5');
+
+  await page.goto('/yeni-is');
+  await page.getByTestId('import-artwork-input').setInputFiles(['e2e/fixtures/kartvizit-ve-davetiye.pdf', 'e2e/fixtures/etiket.svg', 'e2e/fixtures/afis.cdr']);
+
+  // Corel cannot be read; the user is told to export a PDF. The other files become rows (the blank row is replaced).
+  await expect(page.getByRole('alert')).toContainText('CorelDRAW');
+  await expect(page.getByTestId('line-name-0')).toHaveValue('kartvizit-ve-davetiye (1)');
+  // Page 1 has a 3 mm bleed: the size comes from its trim box, not the media box.
+  await expect(page.getByTestId('line-width-0')).toHaveValue('85');
+  await expect(page.getByTestId('line-height-0')).toHaveValue('55');
+  await expect(page.getByTestId('line-name-1')).toHaveValue('kartvizit-ve-davetiye (2)');
+  await expect(page.getByTestId('line-width-1')).toHaveValue('148');
+  await expect(page.getByTestId('line-height-1')).toHaveValue('210');
+  await expect(page.getByTestId('line-name-2')).toHaveValue('etiket');
+  await expect(page.getByTestId('line-width-2')).toHaveValue('100');
+  await expect(page.getByTestId('line-height-2')).toHaveValue('70');
+  await expect(page.getByTestId('line-qty-0')).toHaveValue('1');
+  await expect(page.getByTestId('line-name-3')).toHaveCount(0);
+  for (const i of [0, 1, 2]) await expect(page.getByTestId(`line-artwork-${i}`)).toBeVisible();
+  await page.screenshot({ path: `${SHOTS}/20-artwork-import.png`, fullPage: true });
+
+  await page.getByTestId('line-qty-0').fill('20');
+  await page.getByTestId('run-optimizer').click();
+  await expect(page.getByTestId('sheet-svg')).toBeVisible();
+  // The plan draws the product previews on the pieces.
+  await expect(page.locator('[data-testid="sheet-svg"] image').first()).toBeAttached();
+  await page.screenshot({ path: `${SHOTS}/21-artwork-plan.png`, fullPage: true });
+
+  // Saved orders keep their previews.
+  await page.getByTestId('order-name').fill('Çizimli sipariş');
+  await page.getByTestId('save-order').click();
+  await page.reload();
+  await page.getByTestId('order-select').click();
+  await page.getByRole('option', { name: /Çizimli sipariş/ }).click();
+  await expect(page.getByTestId('line-artwork-0')).toBeVisible();
+});

@@ -74,6 +74,10 @@ export function buildRoutes(db: Db, optimizer: Optimizer): Route[] {
     { method: 'PUT', path: '/api/orders/:id', handler: (r) => ok(svc.saveOrder(db, r.body as never, idParam(r.params.id))) },
     { method: 'DELETE', path: '/api/orders/:id', handler: (r) => (svc.deleteOrder(db, idParam(r.params.id)), noContent()) },
 
+    // Product preview images (imported from artwork files)
+    { method: 'POST', path: '/api/artworks', handler: (r) => created(svc.createArtwork(db, b<{ data?: unknown }>(r))) },
+    { method: 'GET', path: '/api/artworks/:id', handler: (r) => ok(svc.getArtwork(db, r.params.id!)) },
+
     // Optimisation preview: never mutates stock.
     {
       method: 'POST',

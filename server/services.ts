@@ -11,6 +11,7 @@ import {
 } from '../src/engine';
 import {
   materialKeyOf,
+  type ArtworkDto,
   type ConfirmRequest,
   type CustomPaperDto,
   type JobDto,
@@ -296,6 +297,7 @@ function parseLine(raw: Partial<OrderLineDto>, index: number): OrderLineDto {
     grain: oneOf(raw.grain ?? 'any', PIECE_GRAINS, 'Lif yönü'),
     minWidth: optionalNonNegative(raw.minWidth, `${tag}: min. genişlik`),
     minHeight: optionalNonNegative(raw.minHeight, `${tag}: min. yükseklik`),
+    artworkId: typeof raw.artworkId === 'string' && ARTWORK_ID.test(raw.artworkId) ? raw.artworkId : null,
   };
 }
 
@@ -316,6 +318,7 @@ const toLine = (r: Row): OrderLineDto => ({
   grain: str(r.grain) as PieceGrain,
   minWidth: numOrNull(r.min_width),
   minHeight: numOrNull(r.min_height),
+  artworkId: strOrNull(r.artwork_id),
 });
 
 function loadOrder(db: Db, r: Row): OrderDto {
@@ -343,10 +346,10 @@ export function getOrder(db: Db, id: number): OrderDto {
 function writeLines(db: Db, orderId: number, lines: OrderLineDto[]): void {
   db.prepare('DELETE FROM order_lines WHERE order_id = ?').run(orderId);
   const ins = db.prepare(
-    `INSERT INTO order_lines (order_id, position, name, width, height, quantity, notes, allow_rotation, material_key, grain, min_width, min_height)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    `INSERT INTO order_lines (order_id, position, name, width, height, quantity, notes, allow_rotation, material_key, grain, min_width, min_height, artwork_id)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   );
-  lines.forEach((l, i) => ins.run(orderId, i, l.name, l.width, l.height, l.quantity, l.notes, l.allowRotation ? 1 : 0, l.materialKey, l.grain, l.minWidth, l.minHeight));
+  lines.forEach((l, i) => ins.run(orderId, i, l.name, l.width, l.height, l.quantity, l.notes, l.allowRotation ? 1 : 0, l.materialKey, l.grain, l.minWidth, l.minHeight, l.artworkId));
 }
 
 export function saveOrder(db: Db, raw: Partial<OrderInput>, id?: number): OrderDto {
@@ -374,6 +377,30 @@ export function deleteOrder(db: Db, id: number): void {
 }
 
 // ---------------------------------------------------------------------------------------------
+// Artworks (product preview images)
+// ---------------------------------------------------------------------------------------------
+
+const ARTWORK_ID = /^[0-9a-f-]{36}$/;
+const ARTWORK_DATA = /^data:image\/(png|jpeg|webp);base64,[A-Za-z0-9+/=]+$/;
+/** Thumbnails are a few dozen KB; anything near this is not a thumbnail. */
+const ARTWORK_MAX_CHARS = 1_500_000;
+
+/** Stores a preview image. Rows are never deleted by order edits: confirmed jobs keep pointing at them. */
+export function createArtwork(db: Db, raw: { data?: unknown }): ArtworkDto {
+  const data = raw.data;
+  if (typeof data !== 'string' || data.length > ARTWORK_MAX_CHARS || !ARTWORK_DATA.test(data)) bad('Önizleme resmi geçersiz veya çok büyük.');
+  const id = randomUUID();
+  db.prepare('INSERT INTO artworks (id, data, created_at) VALUES (?, ?, ?)').run(id, data, nowIso());
+  return { id, data: data as string };
+}
+
+export function getArtwork(db: Db, id: string): ArtworkDto {
+  const r = row(db.prepare('SELECT id, data FROM artworks WHERE id = ?').get(id));
+  if (!r) throw new HttpError(404, 'Önizleme bulunamadı.');
+  return { id: str(r.id), data: str(r.data) };
+}
+
+// ---------------------------------------------------------------------------------------------
 // Optimisation runs (previews)
 // ---------------------------------------------------------------------------------------------
 
@@ -392,6 +419,7 @@ export function buildOptimizationInput(db: Db, lines: OrderLineDto[], settings: 
       allowRotation: true, // rotation is not a user setting: every sheet and product may be turned 90°
       materialKey: l.materialKey,
       grain: l.grain,
+      artworkId: l.artworkId,
     })),
     stocks: stocks.map((s) => {
       versions[`s${s.id}`] = s.version;
@@ -639,6 +667,7 @@ export function resetAllData(db: Db, confirmation: unknown): void {
       'optimization_runs',
       'order_lines',
       'orders',
+      'artworks',
       'stock_items',
       'custom_papers',
       'setting_profiles',

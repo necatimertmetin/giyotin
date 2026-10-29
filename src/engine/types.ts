@@ -21,6 +21,8 @@ export interface PieceSpec {
   /** Restrict the piece to stock with this material key; null = any material. */
   materialKey: string | null;
   grain: PieceGrain;
+  /** Preview image id carried through to the plan viewer; ignored by the engine. */
+  artworkId?: string | null;
 }
 
 export interface StockSpec {

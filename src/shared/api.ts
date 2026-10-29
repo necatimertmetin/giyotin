@@ -47,6 +47,14 @@ export interface OrderLineDto {
   grain: PieceGrain;
   minWidth: number | null;
   minHeight: number | null;
+  /** Preview image of the product, imported from its artwork file (see /api/artworks); null = none. */
+  artworkId: string | null;
+}
+
+export interface ArtworkDto {
+  id: string;
+  /** Image data URL (PNG/WebP thumbnail). */
+  data: string;
 }
 
 export interface OrderDto {

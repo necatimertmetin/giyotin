@@ -1,6 +1,7 @@
 import { Box, Chip, Divider, Paper, Stack, Tab, Table, TableBody, TableCell, TableHead, TableRow, Tabs, Typography } from '@mui/material';
 import { useEffect, useMemo, useState, type ReactElement, type ReactNode } from 'react';
 import { collectPieces, type CuttingSettings, type OptimizationInput, type OptimizationResult, type Plan } from '../../engine';
+import { useArtworks } from '../hooks';
 import { FONT_MONO } from '../theme';
 import { fmtArea, fmtInt, fmtNum, fmtPercent } from '../format';
 import { CutCaption, CutPlayer } from './CutPlayer';
@@ -23,7 +24,8 @@ interface Props {
 
 /** Cutting plan detail: interactive sheet viewer with a cut animation, the product counts and totals. */
 export function PlanView({ plan, input, settings, meta, actions, stacked = false }: Props): ReactElement {
-  const pieces = useMemo(() => buildPieceInfo(input.pieces), [input.pieces]);
+  const artworks = useArtworks(input.pieces.map((p) => p.artworkId));
+  const pieces = useMemo(() => buildPieceInfo(input.pieces, artworks), [input.pieces, artworks]);
   const [sheetIndex, setSheetIndex] = useState(0);
   const [selection, setSelection] = useState<Selection | null>(null);
   const [step, setStep] = useState<number | null>(null);
