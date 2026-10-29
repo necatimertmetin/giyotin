@@ -1,0 +1,1 @@
+var e=`/giyotin/assets/LiberationSans-Bold-BPt4bU5Z.ttf`;export{e as default};
