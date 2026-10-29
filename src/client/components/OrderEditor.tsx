@@ -1,10 +1,13 @@
 import {
   Box,
+  Button,
   Chip,
+  CircularProgress,
   Collapse,
   IconButton,
   MenuItem,
   Paper,
+  Stack,
   Table,
   TableBody,
   TableCell,
@@ -18,9 +21,13 @@ import {
 import ContentCopyIcon from '@mui/icons-material/ContentCopy';
 import DeleteIcon from '@mui/icons-material/DeleteOutline';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
-import { Fragment, useState, type ReactElement } from 'react';
+import UploadFileIcon from '@mui/icons-material/UploadFile';
+import { Fragment, useRef, useState, type DragEvent, type ReactElement } from 'react';
 import { allowedOrientations, edgeMarginsOf, toUnits, type CuttingSettings, type EdgeMargins } from '../../engine';
 import type { OrderLineDto, StockItemDto } from '../../shared/api';
+import { api } from '../api';
+import { rememberArtwork, useArtworks, useToast } from '../hooks';
+import { ACCEPTED_EXTENSIONS, readArtworkFile } from '../import/importArtwork';
 import { GRAIN_PIECE_LABEL } from '../labels';
 import { NumberField } from './common';
 
@@ -36,6 +43,7 @@ export interface DraftLine {
   grain: OrderLineDto['grain'];
   minWidth: number | null;
   minHeight: number | null;
+  artworkId: string | null;
 }
 
 let counter = 0;
@@ -51,6 +59,7 @@ export const newLine = (over: Partial<DraftLine> = {}): DraftLine => ({
   grain: 'any',
   minWidth: null,
   minHeight: null,
+  artworkId: null,
   ...over,
 });
 
@@ -66,6 +75,7 @@ export const fromDto = (l: OrderLineDto): DraftLine =>
     grain: l.grain,
     minWidth: l.minWidth,
     minHeight: l.minHeight,
+    artworkId: l.artworkId ?? null,
   });
 
 export function lineErrors(l: DraftLine): { name?: string; width?: string; height?: string; quantity?: string } {
@@ -91,8 +101,12 @@ export function toDto(l: DraftLine): OrderLineDto {
     grain: l.grain,
     minWidth: l.minWidth,
     minHeight: l.minHeight,
+    artworkId: l.artworkId,
   };
 }
+
+/** A row nobody has typed into yet. */
+const isBlank = (l: DraftLine): boolean => !l.name.trim() && l.width === null && l.height === null && l.quantity === null;
 
 interface Props {
   lines: DraftLine[];
@@ -117,9 +131,64 @@ function fitsNowhere(l: DraftLine, stock: StockItemDto[], margin: EdgeMargins): 
 export function OrderEditor({ lines, onChange, stock, materials, settings }: Props): ReactElement {
   const [open, setOpen] = useState<Set<string>>(new Set());
   const update = (key: string, patch: Partial<DraftLine>): void => onChange(lines.map((l) => (l.key === key ? { ...l, ...patch } : l)));
+  const images = useArtworks(lines.map((l) => l.artworkId));
+  const toast = useToast();
+  const fileInput = useRef<HTMLInputElement>(null);
+  const [dragging, setDragging] = useState(false);
+  const [importing, setImporting] = useState(false);
+  // Reading files takes a while; rows edited meanwhile must not be overwritten with a stale list.
+  const latest = useRef(lines);
+  latest.current = lines;
+
+  const importFiles = async (files: File[]): Promise<void> => {
+    if (files.length === 0 || importing) return;
+    setImporting(true);
+    const added: DraftLine[] = [];
+    const problems: string[] = [];
+    const notes: string[] = [];
+    for (const file of files) {
+      try {
+        for (const a of await readArtworkFile(file)) {
+          let artworkId: string | null = null;
+          if (a.thumbnail) {
+            const saved = await api.artworks.create(a.thumbnail);
+            rememberArtwork(saved.id, saved.data);
+            artworkId = saved.id;
+          }
+          added.push(newLine({ name: a.name, width: a.width, height: a.height, quantity: 1, artworkId }));
+          if (a.note) notes.push(`${a.name}: ${a.note}`);
+        }
+      } catch (e) {
+        problems.push(e instanceof Error ? e.message : `${file.name}: okunamadı.`);
+      }
+    }
+    setImporting(false);
+    if (added.length > 0) onChange([...latest.current.filter((l) => !isBlank(l)), ...added]);
+    if (problems.length > 0) toast([...(added.length > 0 ? [`${added.length} ürün eklendi.`] : []), ...problems].join(' '), 'error');
+    else if (notes.length > 0) toast(`${added.length} ürün eklendi. ${notes.join(' ')}`, 'warning');
+    else if (added.length > 0) toast(`${added.length} ürün eklendi. Adetleri girmeyi unutmayın.`);
+  };
+
+  const onDrop = (e: DragEvent): void => {
+    e.preventDefault();
+    setDragging(false);
+    void importFiles([...e.dataTransfer.files]);
+  };
+  const onDragOver = (e: DragEvent): void => {
+    if (![...e.dataTransfer.types].includes('Files')) return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'copy';
+    if (!dragging) setDragging(true);
+  };
 
   return (
-    <Paper sx={{ overflow: 'hidden' }}>
+    <Paper
+      sx={{ overflow: 'hidden', position: 'relative', outline: dragging ? '2px dashed' : 'none', outlineColor: 'primary.main', outlineOffset: -2 }}
+      onDragOver={onDragOver}
+      onDragLeave={(e) => { if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setDragging(false); }}
+      onDrop={onDrop}
+      data-testid="order-drop"
+    >
       <TableContainer>
         <Table size="small" data-testid="order-lines">
           <TableHead>
@@ -148,7 +217,12 @@ export function OrderEditor({ lines, onChange, stock, materials, settings }: Pro
                       </IconButton>
                     </TableCell>
                     <TableCell>
+                      <Stack direction="row" spacing={1} alignItems="center">
+                      {l.artworkId && images.get(l.artworkId) && (
+                        <Box component="img" src={images.get(l.artworkId)} alt="" data-testid={`line-artwork-${idx}`} sx={{ width: 44, height: 44, objectFit: 'contain', flexShrink: 0, border: 1, borderColor: 'divider', borderRadius: 0.5, bgcolor: '#fff' }} />
+                      )}
                       <TextField fullWidth placeholder="Örn. Flyer" value={l.name} onChange={(e) => update(l.key, { name: e.target.value })} error={showErr && !!err.name} inputProps={{ 'aria-label': 'Ürün adı', 'data-testid': `line-name-${idx}` }} />
+                      </Stack>
                       {nofit && <Chip size="small" color="error" label="Hiçbir stoğa sığmıyor" sx={{ mt: 0.5 }} data-testid={`line-nofit-${idx}`} />}
                     </TableCell>
                     <TableCell><NumberField fullWidth unit="mm" value={l.width} onChange={(v) => update(l.key, { width: v })} error={showErr && !!err.width} helperText={showErr ? err.width : undefined} inputProps={{ 'aria-label': 'Genişlik', 'data-testid': `line-width-${idx}` }} /></TableCell>
@@ -188,6 +262,27 @@ export function OrderEditor({ lines, onChange, stock, materials, settings }: Pro
           </TableBody>
         </Table>
       </TableContainer>
+      <Stack direction="row" spacing={1.5} alignItems="center" sx={{ px: 2, py: 1, borderTop: 1, borderColor: 'divider', bgcolor: dragging ? 'action.hover' : undefined }}>
+        <Button size="small" startIcon={importing ? <CircularProgress size={16} /> : <UploadFileIcon />} disabled={importing} onClick={() => fileInput.current?.click()} data-testid="import-artwork">
+          Çizimden ekle
+        </Button>
+        <Typography variant="caption" color="text.secondary">
+          {importing ? 'Dosyalar okunuyor…' : 'AI, PDF, SVG veya EPS dosyalarını buraya sürükleyin: ölçü ve önizleme dosyadan alınır. Corel için önce PDF çıkarın.'}
+        </Typography>
+        <input
+          ref={fileInput}
+          type="file"
+          multiple
+          hidden
+          accept={ACCEPTED_EXTENSIONS}
+          data-testid="import-artwork-input"
+          onChange={(e) => {
+            const files = [...(e.target.files ?? [])];
+            e.target.value = '';
+            void importFiles(files);
+          }}
+        />
+      </Stack>
     </Paper>
   );
 }

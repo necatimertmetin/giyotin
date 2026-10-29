@@ -18,10 +18,10 @@ export function seedIfEmpty(db: Db): void {
     name: 'Örnek sipariş — Açılış kampanyası',
     notes: 'Örnek veri: dilediğiniz gibi değiştirebilirsiniz.',
     lines: [
-      { name: 'Flyer', width: 100, height: 150, quantity: 500, notes: null, allowRotation: true, materialKey: key('Kuşe', 135, 'Beyaz', 'Parlak'), grain: 'any', minWidth: null, minHeight: null },
-      { name: 'Poster', width: 300, height: 400, quantity: 25, notes: null, allowRotation: true, materialKey: key('Kuşe', 135, 'Beyaz', 'Parlak'), grain: 'any', minWidth: null, minHeight: null },
-      { name: 'Davetiye', width: 148, height: 210, quantity: 120, notes: null, allowRotation: true, materialKey: key('Kuşe', 350, 'Beyaz', 'Mat'), grain: 'any', minWidth: null, minHeight: null },
-      { name: 'Kartvizit', width: 85, height: 55, quantity: 1000, notes: 'Mat selofan', allowRotation: true, materialKey: key('Kuşe', 350, 'Beyaz', 'Mat'), grain: 'any', minWidth: null, minHeight: null },
+      { name: 'Flyer', width: 100, height: 150, quantity: 500, notes: null, allowRotation: true, materialKey: key('Kuşe', 135, 'Beyaz', 'Parlak'), grain: 'any', minWidth: null, minHeight: null, artworkId: null },
+      { name: 'Poster', width: 300, height: 400, quantity: 25, notes: null, allowRotation: true, materialKey: key('Kuşe', 135, 'Beyaz', 'Parlak'), grain: 'any', minWidth: null, minHeight: null, artworkId: null },
+      { name: 'Davetiye', width: 148, height: 210, quantity: 120, notes: null, allowRotation: true, materialKey: key('Kuşe', 350, 'Beyaz', 'Mat'), grain: 'any', minWidth: null, minHeight: null, artworkId: null },
+      { name: 'Kartvizit', width: 85, height: 55, quantity: 1000, notes: 'Mat selofan', allowRotation: true, materialKey: key('Kuşe', 350, 'Beyaz', 'Mat'), grain: 'any', minWidth: null, minHeight: null, artworkId: null },
     ],
   });
 
@@ -36,6 +36,6 @@ export function seedIfEmpty(db: Db): void {
   saveOrder(db, {
     name: 'Örnek sipariş — Broşür seti (tek kağıt)',
     notes: 'Örnek veri: hepsi Kuşe 135 gr, 4 farklı boyut.',
-    lines: sizes.map(([name, width, height, quantity]) => ({ name, width, height, quantity, notes: null, allowRotation: true, materialKey: kuse135Key, grain: 'any' as const, minWidth: null, minHeight: null })),
+    lines: sizes.map(([name, width, height, quantity]) => ({ name, width, height, quantity, notes: null, allowRotation: true, materialKey: kuse135Key, grain: 'any' as const, minWidth: null, minHeight: null, artworkId: null })),
   });
 }
