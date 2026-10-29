@@ -1,1 +1,0 @@
-var e=`/giyotin/assets/LiberationSans-Regular-cbskN6YR.ttf`;export{e as default};
