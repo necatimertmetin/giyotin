@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { baseName, intersect, kindOf, pageTrimBox, postScriptBox, postScriptPart, ptToMm, svgSize } from '../src/client/import/artworkFormat';
+import { baseName, intersect, kindOf, pageBox, pieceBox, postScriptBox, postScriptPart, ptToMm, svgSize } from '../src/client/import/artworkFormat';
 
 const bytes = (s: string): Uint8Array => new TextEncoder().encode(s);
 
@@ -60,16 +60,29 @@ describe('sizes', () => {
       '3 0 obj <</Type/Page/MediaBox[0 0 258.9 173.8]/BleedBox[0 0 258.9 173.8]/TrimBox[ 8.5 8.94 249.45 164.85 ]>> endobj',
       '4 0 obj <</Type/Page/MediaBox[0 0 100 100]>> endobj',
     ].join('\n');
-    const trim = pageTrimBox(pdf, 3, 0)!;
+    const trim = pageBox(pdf, 3, 0)!;
     expect(trim).toEqual([8.5, 8.94, 249.45, 164.85]);
     expect(ptToMm(trim[2] - trim[0])).toBe(85);
     expect(ptToMm(trim[3] - trim[1])).toBe(55);
-    expect(pageTrimBox(pdf, 4, 0)).toBeNull();
-    expect(pageTrimBox(pdf, 2, 0)).toBeNull();
+    expect(pageBox(pdf, 4, 0)).toBeNull();
+    expect(pageBox(pdf, 2, 0)).toBeNull();
   });
 
   it('clips a box to another one', () => {
     expect(intersect([-10, -10, 50, 50], [0, 0, 100, 100])).toEqual([0, 0, 50, 50]);
     expect(intersect([200, 200, 300, 300], [0, 0, 100, 100])).toBeNull();
+  });
+
+  it('uses the art box when the trim box is the whole page (a label on an A4 artboard)', () => {
+    // spark.pdf from Illustrator: A4 landscape page, trim = page, the label drawn in a 816×156 pt strip.
+    const view: [number, number, number, number] = [0, 0, 841.89, 595.276];
+    const art: [number, number, number, number] = [0, 315.824, 816.628, 472.208];
+    const r = pieceBox(view, view, art);
+    expect(r.fromArt).toBe(true);
+    expect([ptToMm(r.box[2] - r.box[0]), ptToMm(r.box[3] - r.box[1])]).toEqual([288.1, 55.2]);
+    // A real trim box wins over the art box; without either the page is the piece.
+    expect(pieceBox(view, [9, 9, 832.89, 586.276], art)).toEqual({ box: [9, 9, 832.89, 586.276], fromArt: false });
+    expect(pieceBox(view, null, null)).toEqual({ box: view, fromArt: false });
+    expect(pieceBox(view, view, view)).toEqual({ box: view, fromArt: false });
   });
 });

@@ -84,12 +84,12 @@ export function svgSize(text: string): { width: number; height: number } | null 
 }
 
 /**
- * The /TrimBox of the page object `num gen obj`, if the page dictionary is stored uncompressed (as Illustrator and
- * most prepress exports do). pdf.js does not expose the trim box, and the media/crop box includes the bleed.
+ * The /TrimBox (or another page box) of the page object `num gen obj`, if the page dictionary is stored uncompressed
+ * (as Illustrator and most prepress exports do). pdf.js does not expose these, and the media/crop box includes the bleed.
  */
-export function pageTrimBox(pdfText: string, num: number, gen: number): Box | null {
+export function pageBox(pdfText: string, num: number, gen: number, kind: 'TrimBox' | 'ArtBox' = 'TrimBox'): Box | null {
   const obj = new RegExp(`(?:^|[^\\d])${num}\\s+${gen}\\s+obj\\b([\\s\\S]*?)\\bendobj`).exec(pdfText)?.[1];
-  const m = obj && /\/TrimBox\s*\[\s*(-?[\d.]+)\s+(-?[\d.]+)\s+(-?[\d.]+)\s+(-?[\d.]+)\s*\]/.exec(obj);
+  const m = obj && new RegExp(`/${kind}\\s*\\[\\s*(-?[\\d.]+)\\s+(-?[\\d.]+)\\s+(-?[\\d.]+)\\s+(-?[\\d.]+)\\s*\\]`).exec(obj);
   if (!m) return null;
   const [a, b, c, d] = m.slice(1, 5).map(Number) as Box;
   const box: Box = [Math.min(a, c), Math.min(b, d), Math.max(a, c), Math.max(b, d)];
@@ -100,4 +100,21 @@ export function pageTrimBox(pdfText: string, num: number, gen: number): Box | nu
 export function intersect(inner: Box, outer: Box): Box | null {
   const box: Box = [Math.max(inner[0], outer[0]), Math.max(inner[1], outer[1]), Math.min(inner[2], outer[2]), Math.min(inner[3], outer[3])];
   return box[2] > box[0] && box[3] > box[1] ? box : null;
+}
+
+/** Below this difference (pt, ≈ 1 mm) two box edges count as the same. */
+const SAME_EDGE_PT = 3;
+const sameBox = (a: Box, b: Box): boolean => a.every((v, i) => Math.abs(v - b[i]!) < SAME_EDGE_PT);
+
+/**
+ * The finished piece on a PDF page. A trim box smaller than the page wins. When the trim box is the whole page
+ * (a small label placed on an A4 artboard), Illustrator's /ArtBox – the extent of the drawing – is used instead;
+ * `fromArt` tells the caller that the size is a guess the user should check.
+ */
+export function pieceBox(view: Box, trim: Box | null, art: Box | null): { box: Box; fromArt: boolean } {
+  const t = trim && intersect(trim, view);
+  if (t && !sameBox(t, view)) return { box: t, fromArt: false };
+  const a = art && intersect(art, view);
+  if (a && !sameBox(a, view)) return { box: a, fromArt: true };
+  return { box: t ?? view, fromArt: false };
 }

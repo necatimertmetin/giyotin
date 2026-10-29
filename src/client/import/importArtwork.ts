@@ -1,4 +1,4 @@
-import { baseName, intersect, kindOf, pageTrimBox, postScriptBox, postScriptPart, ptToMm, svgSize, type Box } from './artworkFormat';
+import { baseName, kindOf, pageBox, pieceBox, postScriptBox, postScriptPart, ptToMm, svgSize, type Box } from './artworkFormat';
 
 /** One product read from an artwork file (a file holds one product per page/artboard). */
 export interface ImportedArtwork {
@@ -54,8 +54,9 @@ async function readPdf(bytes: Uint8Array, name: string): Promise<ImportedArtwork
     for (let p = 1; p <= pages; p++) {
       const page = await doc.getPage(p);
       const view = page.view as Box;
-      const trim = page.ref ? pageTrimBox(raw, page.ref.num, page.ref.gen) : null;
-      const box = (trim && intersect(trim, view)) ?? view;
+      const trim = page.ref ? pageBox(raw, page.ref.num, page.ref.gen, 'TrimBox') : null;
+      const art = page.ref ? pageBox(raw, page.ref.num, page.ref.gen, 'ArtBox') : null;
+      const { box, fromArt } = pieceBox(view, trim, art);
       const turned = page.rotate % 180 !== 0;
       const w = ptToMm(box[2] - box[0]);
       const h = ptToMm(box[3] - box[1]);
@@ -78,7 +79,12 @@ async function readPdf(bytes: Uint8Array, name: string): Promise<ImportedArtwork
         width: turned ? h : w,
         height: turned ? w : h,
         thumbnail: toDataUrl(canvas, crop),
-        note: doc.numPages > MAX_PAGES && p === pages ? `Dosyada ${doc.numPages} sayfa var; ilk ${MAX_PAGES} sayfa alındı.` : null,
+        note:
+          doc.numPages > MAX_PAGES && p === pages
+            ? `Dosyada ${doc.numPages} sayfa var; ilk ${MAX_PAGES} sayfa alındı.`
+            : fromArt
+              ? 'Çizim sayfadan küçük: ölçü sayfa yerine çizimin sınırlarından alındı. Kesim payı/taşma dahil olabilir, ölçüyü kontrol edin.'
+              : null,
       });
     }
     return out;
