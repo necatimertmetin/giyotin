@@ -2,6 +2,7 @@ import { Box, Chip, Paper, Radio, Stack, Typography } from '@mui/material';
 import CheckIcon from '@mui/icons-material/Check';
 import { useMemo, type ReactElement } from 'react';
 import { cutSteps, type Plan } from '../../engine';
+import { extraProducts } from './PlanStats';
 import { FONT_MONO } from '../theme';
 import { fmtArea, fmtInt, fmtMoney, fmtPercent } from '../format';
 
@@ -13,7 +14,7 @@ interface Props {
   horizontal?: boolean;
 }
 
-type Criterion = 'molds' | 'sheets' | 'material' | 'cost' | 'waste' | 'offcut' | 'cuts';
+type Criterion = 'molds' | 'sheets' | 'material' | 'cost' | 'waste' | 'offcut' | 'cuts' | 'extra';
 type Best = Record<Criterion, Set<string>>;
 
 const LAYOUT_NAME = ['', 'Tek Kalıp', 'İki Kalıp', 'Üç Kalıp'];
@@ -52,6 +53,7 @@ function bestOf(plans: Plan[]): Best {
     waste: pick((p) => p.totals.wasteArea, 'min'),
     offcut: pick((p) => p.totals.offcutArea, 'max'),
     cuts: pick((p) => cutSteps(p), 'min'),
+    extra: pick(extraProducts, 'min'),
   };
 }
 
@@ -104,6 +106,7 @@ export function PlanComparison({ plans, selectedId, onSelect, horizontal = false
               <Cell label="Fire" value={fmtArea(p.totals.wasteArea)} good={isBest('waste')} />
               <Cell label="Artık" value={fmtArea(p.totals.offcutArea)} good={isBest('offcut')} />
               <Cell label="Kesim adımı" value={fmtInt(cutSteps(p))} good={isBest('cuts')} />
+              <Cell label="Fazla ürün" value={`${fmtInt(extraProducts(p))} adet`} good={isBest('extra')} />
             </Box>
           </Paper>
         );

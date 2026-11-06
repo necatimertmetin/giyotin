@@ -33,6 +33,9 @@ function Stat({ label, value, tone }: { label: string; value: ReactNode; tone?: 
   );
 }
 
+/** Products made beyond the order, in total. */
+export const extraProducts = (plan: Plan): number => Object.values(plan.overproduced ?? {}).reduce((a, n) => a + n, 0);
+
 export function PlanStats({ plan, input, meta }: Props): ReactElement {
   const t = plan.totals;
   const stockById = new Map(input.stocks.map((s) => [s.id, s]));
@@ -59,6 +62,7 @@ export function PlanStats({ plan, input, meta }: Props): ReactElement {
           <Stat label="Fire" value={fmtArea(t.wasteArea)} tone="bad" />
           <Stat label="Artık" value={fmtArea(t.offcutArea)} tone="good" />
           <Stat label="Bıçak payı" value={fmtArea(t.kerfArea)} />
+          <Stat label="Fazla ürün" value={`${fmtInt(extraProducts(plan))} adet`} />
         </Box>
         <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 1 }}>
           {used.map((s) => `${s.name} · ${fmtNum(s.width)}×${fmtNum(s.height)} mm${s.kind === 'offcut' ? ' (artık)' : ''}: ${fmtInt(t.sheetsByStock[s.id] ?? 0)} kullanıldı, ${fmtInt((stockById.get(s.id)?.quantity ?? 0) - (t.sheetsByStock[s.id] ?? 0))} kaldı`).join(' · ')}
