@@ -29,6 +29,8 @@ export function createApp({ db, optimizer, staticDir }: AppOptions): FastifyInst
     app.route({
       method: route.method,
       url: route.path,
+      // A backup carries the whole history.
+      ...(route.path === '/api/admin/import' ? { bodyLimit: 256 * 1024 * 1024 } : {}),
       handler: async (req, reply) => {
         // The client went away (e.g. pressed "İptal") before the response was written.
         const controller = new AbortController();

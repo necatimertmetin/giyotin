@@ -34,6 +34,83 @@ const stockBody = (over: Record<string, unknown> = {}): Record<string, unknown> 
   ...over,
 });
 
+describe('backup and stock choice', () => {
+  const post = (url: string, payload: unknown) => app.inject({ method: 'POST', url, payload: payload as object });
+  const addStock = async (over: Record<string, unknown> = {}): Promise<StockItemDto> => (await post('/api/stock', stockBody(over))).json();
+
+  it('calculates with the chosen papers only', async () => {
+    const a = await addStock({ name: 'A' });
+    await addStock({ name: 'B' });
+    const run = (await post('/api/optimize', { orderId: null, lines: [line()], settings, stockIds: [a.id] })).json<RunDto>();
+    expect(run.input.stocks.map((s) => s.id)).toEqual([`s${a.id}`]);
+    const all = (await post('/api/optimize', { orderId: null, lines: [line()], settings })).json<RunDto>();
+    expect(all.input.stocks).toHaveLength(2);
+  });
+
+  const get = async <T>(target: FastifyInstance, url: string): Promise<T> => (await target.inject({ method: 'GET', url })).json<T>();
+  const load = (target: FastifyInstance, payload: unknown) => target.inject({ method: 'POST', url: '/api/admin/import', payload: payload as object });
+
+  it('adds a backup to the data already here and keeps job references right', async () => {
+    await addStock({ name: 'A' });
+    const order = (await post('/api/orders', { name: 'Sipariş', notes: null, lines: [line()] })).json<{ id: number }>();
+    const run = (await post('/api/optimize', { orderId: order.id, lines: [line()], settings })).json<RunDto>();
+    const job = (await post(`/api/runs/${run.id}/confirm`, { planId: run.result.plans[0]!.id, approvedOffcuts: [] })).json<JobDto>();
+    const backup = await get(app, '/api/admin/export');
+
+    // The other computer has its own records under the same ids.
+    const other = createApp({ db: openDb(':memory:'), optimizer: inlineOptimizer });
+    await other.inject({ method: 'POST', url: '/api/stock', payload: stockBody({ name: 'Burada' }) });
+    await other.inject({ method: 'POST', url: '/api/orders', payload: { name: 'Buradaki sipariş', notes: null, lines: [line()] } });
+    const result = await load(other, backup);
+    expect(result.statusCode).toBe(200);
+    expect(result.json()).toEqual({ stock: expect.any(Number), orders: 1, jobs: 1, skipped: 0 });
+
+    const stock = await get<StockItemDto[]>(other, '/api/stock');
+    expect(stock.map((s) => s.name)).toEqual(expect.arrayContaining(['Burada', 'A']));
+    expect((await get<Array<{ name: string }>>(other, '/api/orders')).map((o) => o.name).sort()).toEqual(['Buradaki sipariş', 'Sipariş']);
+
+    // The job points at the new id of its paper, also inside its snapshot.
+    const [summary] = await get<Array<{ id: number }>>(other, '/api/jobs');
+    const moved = await get<JobDto>(other, `/api/jobs/${summary!.id}`);
+    const paper = stock.find((s) => s.name === 'A' && s.kind === 'sheet')!;
+    expect(moved.plan.sheets[0]!.stockId).toBe(`s${paper.id}`);
+    expect(moved.input.stocks.map((s) => s.id)).toContain(`s${paper.id}`);
+    expect(Object.keys(moved.plan.totals.sheetsByStock)).toEqual([`s${paper.id}`]);
+    expect(moved.plan.totals.sheetCount).toBe(job.plan.totals.sheetCount);
+  });
+
+  it('does not double anything when the same backup is loaded twice', async () => {
+    await addStock({ name: 'A' });
+    const backup = await get(app, '/api/admin/export');
+    const other = createApp({ db: openDb(':memory:'), optimizer: inlineOptimizer });
+    await load(other, backup);
+    const again = (await load(other, backup)).json();
+    expect(again).toEqual({ stock: 0, orders: 0, jobs: 0, skipped: 1 });
+    expect((await get<StockItemDto[]>(other, '/api/stock')).map((s) => s.quantity)).toEqual([5]);
+  });
+
+  it('keeps the machine of this computer', async () => {
+    await app.inject({ method: 'PUT', url: '/api/machine', payload: { name: 'Eski', bladeLength: 920 } });
+    const backup = await get(app, '/api/admin/export');
+    const other = createApp({ db: openDb(':memory:'), optimizer: inlineOptimizer });
+    await other.inject({ method: 'PUT', url: '/api/machine', payload: { name: 'Burada', bladeLength: 1150 } });
+    await load(other, backup);
+    expect((await get<{ bladeLength: number }>(other, '/api/machine')).bladeLength).toBe(1150);
+  });
+
+  it('leaves the data alone when the file is wrong or damaged', async () => {
+    await addStock({ name: 'A' });
+    expect((await post('/api/admin/import', { hello: 1 })).statusCode).toBe(400);
+    const backup = (await app.inject({ method: 'GET', url: '/api/admin/export' })).json();
+    // A good record first, then one that violates a CHECK constraint: neither may stay.
+    const good = backup.tables.stock_items[0];
+    backup.tables.stock_items = [good, { ...good, name: 'B', width: -5 }];
+    const other = createApp({ db: openDb(':memory:'), optimizer: inlineOptimizer });
+    expect((await other.inject({ method: 'POST', url: '/api/admin/import', payload: backup })).statusCode).toBe(400);
+    expect((await other.inject({ method: 'GET', url: '/api/stock' })).json()).toEqual([]);
+  });
+});
+
 const line = (over: Partial<OrderLineDto> = {}): OrderLineDto => ({
   name: 'Flyer',
   width: 100,

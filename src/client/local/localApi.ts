@@ -73,6 +73,7 @@ const browserOptimizer: Optimizer = (input, signal) =>
 interface Ctx {
   routes: Route[];
   persistSoon: () => void;
+  persistNow: () => Promise<void>;
   prune: () => void;
 }
 
@@ -87,19 +88,23 @@ async function init(): Promise<Ctx> {
   initSchema(db);
 
   let timer: ReturnType<typeof setTimeout> | undefined;
-  const persist = (): void => {
+  const persist = (): Promise<void> => {
     // export() reopens the database, which resets pragmas.
     const bytes = raw.export();
     raw.run('PRAGMA foreign_keys = ON');
-    void saveBytes(bytes);
+    return saveBytes(bytes);
   };
-  persist();
+  void persist();
 
   return {
     routes: buildRoutes(db, browserOptimizer),
     persistSoon: () => {
       clearTimeout(timer);
-      timer = setTimeout(persist, 300);
+      timer = setTimeout(() => void persist(), 300);
+    },
+    persistNow: () => {
+      clearTimeout(timer);
+      return persist();
     },
     // Unconfirmed previews pile up; keep the latest few so the stored database stays small.
     prune: () => {
@@ -123,7 +128,9 @@ export async function localRequest<T>(method: string, url: string, body?: unknow
     if (result.status >= 400) throw new Error((result.body as { message?: string } | undefined)?.message ?? 'İstek başarısız oldu.');
     if (method !== 'GET') {
       if (url === '/api/optimize') ctx.prune();
-      ctx.persistSoon();
+      // The page reloads right after an import, before a delayed save would run.
+      if (url === '/api/admin/import') await ctx.persistNow();
+      else ctx.persistSoon();
     }
     return result.body as T;
   } catch (error) {

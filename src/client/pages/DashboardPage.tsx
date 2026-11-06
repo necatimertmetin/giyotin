@@ -2,6 +2,7 @@ import { Alert, Box, Button, Dialog, DialogActions, DialogContent, DialogTitle, 
 import { useMemo, useState, type ReactElement } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { api } from '../api';
+import { BackupSettings } from '../components/BackupSettings';
 import { ErrorNote, PageHeader } from '../components/common';
 import { Metric } from '../components/PlanStats';
 import { fmtArea, fmtDate, fmtInt, fmtNum, fmtPercent } from '../format';
@@ -140,6 +141,8 @@ export function DashboardPage(): ReactElement {
           </Table>
         </Paper>
       </Box>
+
+      <BackupSettings wide />
 
       <Paper sx={{ p: 2, mt: 3, borderColor: 'error.main' }} data-testid="danger-zone">
         <Stack direction={{ xs: 'column', sm: 'row' }} justifyContent="space-between" alignItems={{ sm: 'center' }} spacing={1.5}>

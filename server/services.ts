@@ -10,6 +10,8 @@ import {
   type PieceGrain,
 } from '../src/engine';
 import {
+  type BackupDto,
+  type ImportSummary,
   materialKeyOf,
   type ArtworkDto,
   type ConfirmRequest,
@@ -431,8 +433,8 @@ export function getArtwork(db: Db, id: string): ArtworkDto {
 // ---------------------------------------------------------------------------------------------
 
 /** Build the engine input from the order lines and the CURRENT usable stock. Does not mutate anything. */
-export function buildOptimizationInput(db: Db, lines: OrderLineDto[], settings: CuttingSettings): { input: OptimizationInput; versions: Record<string, number> } {
-  const stocks = listStock(db).filter((s) => s.status === 'active' && s.quantity > 0);
+export function buildOptimizationInput(db: Db, lines: OrderLineDto[], settings: CuttingSettings, stockIds?: number[]): { input: OptimizationInput; versions: Record<string, number> } {
+  const stocks = listStock(db).filter((s) => s.status === 'active' && s.quantity > 0 && (!stockIds || stockIds.includes(s.id)));
   const versions: Record<string, number> = {};
   const input: OptimizationInput = {
     settings,
@@ -682,25 +684,153 @@ export function discardJobOffcut(db: Db, jobId: number, offcutId: number): JobDt
 
 export const RESET_CONFIRMATION = 'TUM-VERILERI-SIL';
 
+/** All tables, parents before the rows that refer to them. */
+const DATA_TABLES = [
+  'custom_papers',
+  'stock_items',
+  'orders',
+  'order_lines',
+  'artworks',
+  'setting_profiles',
+  'app_settings',
+  'optimization_runs',
+  'jobs',
+  'job_consumption',
+  'job_offcuts',
+];
+
+function clearData(db: Db): void {
+  for (const table of [...DATA_TABLES].reverse()) db.exec(`DELETE FROM ${table}`);
+  db.exec('DELETE FROM sqlite_sequence');
+}
+
 /** Irreversibly deletes ALL application data (stock, offcuts, orders, jobs, profiles, settings) in one transaction. */
 export function resetAllData(db: Db, confirmation: unknown): void {
   if (confirmation !== RESET_CONFIRMATION) throw new HttpError(400, 'Onay ifadesi eksik veya hatalı; hiçbir veri silinmedi.');
-  transaction(db, () => {
-    for (const table of [
-      'job_offcuts',
-      'job_consumption',
-      'jobs',
-      'optimization_runs',
-      'order_lines',
-      'orders',
-      'artworks',
-      'stock_items',
-      'custom_papers',
-      'setting_profiles',
-      'app_settings',
-    ]) {
-      db.exec(`DELETE FROM ${table}`);
-    }
-    db.exec('DELETE FROM sqlite_sequence');
-  });
+  transaction(db, () => clearData(db));
+}
+
+const BACKUP_VERSION = 1;
+
+/** The whole database. Calculation previews stay out: a confirmed job holds its own copy of input and plan. */
+export function exportData(db: Db): BackupDto {
+  const tables: BackupDto['tables'] = {};
+  for (const table of DATA_TABLES) {
+    if (table !== 'optimization_runs') tables[table] = db.prepare(`SELECT * FROM ${table}`).all() as Array<Record<string, unknown>>;
+  }
+  return { app: 'giyotin', version: BACKUP_VERSION, exportedAt: nowIso(), tables };
+}
+
+type BackupRow = Record<string, unknown>;
+
+/** Inserts a backup row under a new id; references are passed in `over`. Column names come from the database, never the file. */
+function addRow(db: Db, table: string, row: BackupRow, over: BackupRow = {}): number {
+  const info = db.prepare(`PRAGMA table_info(${table})`).all() as Array<{ name: string; pk: number; type: string }>;
+  // Numbered ids are given anew; text keys identify the record.
+  const known = info.filter((c) => !c.pk || c.type === 'TEXT').map((c) => c.name);
+  const merged = { ...row, ...over };
+  const columns = known.filter((c) => c in merged);
+  const result = db.prepare(`INSERT INTO ${table} (${columns.join(', ')}) VALUES (${columns.map(() => '?').join(', ')})`).run(...columns.map((c) => merged[c] ?? null));
+  return Number(result.lastInsertRowid);
+}
+
+const originKey = (r: BackupRow): string => `${String(r.name)}|${String(r.created_at)}`;
+
+/** Records already here, by origin: a copy of a record has the same name and creation time as the original. */
+function existingIds(db: Db, table: string): Map<string, number> {
+  const found = new Map<string, number>();
+  for (const r of db.prepare(`SELECT id, name, created_at FROM ${table}`).all() as BackupRow[]) found.set(originKey(r), Number(r.id));
+  return found;
+}
+
+/** A job's snapshot names its papers "s<id>"; history and its offcuts look the paper up by that. */
+function withStockIds(row: BackupRow, stockIds: Map<number, number>): BackupRow {
+  const moved = (id: string): string => `s${stockIds.get(Number(id.slice(1))) ?? id.slice(1)}`;
+  const input = JSON.parse(String(row.input)) as OptimizationInput;
+  const plan = JSON.parse(String(row.plan)) as Plan;
+  input.stocks = input.stocks.map((s) => ({ ...s, id: moved(s.id) }));
+  plan.sheets = plan.sheets.map((s) => ({ ...s, stockId: moved(s.stockId) }));
+  plan.totals.sheetsByStock = Object.fromEntries(Object.entries(plan.totals.sheetsByStock).map(([k, v]) => [moved(k), v]));
+  return { input: JSON.stringify(input), plan: JSON.stringify(plan) };
+}
+
+/**
+ * Adds a backup to the data already here, in one transaction: a bad file changes nothing. Nothing here is deleted or
+ * changed. Records get new ids, and one that is already here (same origin, or the same calculation for a job) is
+ * skipped, so loading a backup twice does not double the inventory. The machine and the settings of this computer
+ * stay; only those it does not have yet are taken.
+ */
+export function importData(db: Db, backup: Partial<BackupDto>): ImportSummary {
+  const tables = backup.tables;
+  if (backup.app !== 'giyotin' || !tables || !DATA_TABLES.every((t) => Array.isArray(tables[t] ?? []))) {
+    throw new HttpError(400, 'Bu dosya bir Giyotin yedeği değil; hiçbir veri değiştirilmedi.');
+  }
+  if ((backup.version ?? 0) > BACKUP_VERSION) throw new HttpError(400, 'Bu yedek daha yeni bir sürümden alınmış; önce uygulamayı güncelleyin.');
+  const summary: ImportSummary = { stock: 0, orders: 0, jobs: 0, skipped: 0 };
+  const list = (table: string): BackupRow[] => tables[table] ?? [];
+  const has = (sql: string, ...params: unknown[]): boolean => db.prepare(sql).get(...params) !== undefined;
+  try {
+    transaction(db, () => {
+      for (const r of list('custom_papers')) {
+        if (!has('SELECT 1 FROM custom_papers WHERE name = ? AND width = ? AND height = ?', r.name, r.width, r.height)) addRow(db, 'custom_papers', r);
+      }
+      for (const r of list('artworks')) if (!has('SELECT 1 FROM artworks WHERE id = ?', r.id)) addRow(db, 'artworks', r);
+      for (const r of list('setting_profiles')) if (!has('SELECT 1 FROM setting_profiles WHERE name = ?', r.name)) addRow(db, 'setting_profiles', r);
+      for (const r of list('app_settings')) if (!has('SELECT 1 FROM app_settings WHERE key = ?', r.key)) addRow(db, 'app_settings', r);
+
+      const orderIds = new Map<number, number>();
+      const orders = existingIds(db, 'orders');
+      for (const r of list('orders')) {
+        const here = orders.get(originKey(r));
+        if (here !== undefined) {
+          orderIds.set(Number(r.id), here);
+          summary.skipped++;
+          continue;
+        }
+        const id = addRow(db, 'orders', r);
+        orderIds.set(Number(r.id), id);
+        summary.orders++;
+        for (const l of list('order_lines')) if (l.order_id === r.id) addRow(db, 'order_lines', l, { order_id: id });
+      }
+
+      const stockIds = new Map<number, number>();
+      const stock = existingIds(db, 'stock_items');
+      const newStock: BackupRow[] = [];
+      for (const r of list('stock_items')) {
+        const here = stock.get(originKey(r));
+        if (here !== undefined) {
+          stockIds.set(Number(r.id), here);
+          summary.skipped++;
+          continue;
+        }
+        // The job that left an offcut is linked below, once jobs have their new ids.
+        stockIds.set(Number(r.id), addRow(db, 'stock_items', r, { source_job_id: null }));
+        newStock.push(r);
+        summary.stock++;
+      }
+
+      const jobIds = new Map<number, number>();
+      const stockOf = (x: unknown): number | null => (x === null || x === undefined ? null : (stockIds.get(Number(x)) ?? null));
+      for (const r of list('jobs')) {
+        const here = db.prepare('SELECT id FROM jobs WHERE run_id = ?').get(r.run_id) as BackupRow | undefined;
+        if (here) {
+          jobIds.set(Number(r.id), Number(here.id));
+          summary.skipped++;
+          continue;
+        }
+        const id = addRow(db, 'jobs', r, { order_id: orderIds.get(Number(r.order_id)) ?? null, ...withStockIds(r, stockIds) });
+        jobIds.set(Number(r.id), id);
+        summary.jobs++;
+        for (const c of list('job_consumption')) if (c.job_id === r.id) addRow(db, 'job_consumption', c, { job_id: id, stock_item_id: stockOf(c.stock_item_id) ?? c.stock_item_id });
+        for (const o of list('job_offcuts')) if (o.job_id === r.id) addRow(db, 'job_offcuts', o, { job_id: id, stock_item_id: stockOf(o.stock_item_id) });
+      }
+      for (const r of newStock) {
+        const job = jobIds.get(Number(r.source_job_id));
+        if (job !== undefined) db.prepare('UPDATE stock_items SET source_job_id = ? WHERE id = ?').run(job, stockIds.get(Number(r.id)));
+      }
+    });
+  } catch {
+    throw new HttpError(400, 'Yedek dosyası bozuk; hiçbir veri değiştirilmedi.');
+  }
+  return summary;
 }

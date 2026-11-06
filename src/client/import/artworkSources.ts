@@ -39,6 +39,12 @@ async function run<T>(mode: IDBTransactionMode, fn: (store: IDBObjectStore) => I
 
 export const saveArtworkSource = (artworkId: string, source: ArtworkSource): Promise<void> => run<undefined>('readwrite', (s) => s.put(source, artworkId)).then(() => undefined);
 
+/** Every stored source with its artwork id, for a backup. */
+export async function allArtworkSources(): Promise<Array<[string, ArtworkSource]>> {
+  const [keys, values] = await Promise.all([run<IDBValidKey[]>('readonly', (s) => s.getAllKeys()), run<ArtworkSource[]>('readonly', (s) => s.getAll())]);
+  return keys.map((k, i) => [String(k), values[i]!]);
+}
+
 /** The stored source, or null when there is none (imported elsewhere or before sources were kept) or storage fails. */
 export const getArtworkSource = (artworkId: string): Promise<ArtworkSource | null> =>
   run<ArtworkSource | undefined>('readonly', (s) => s.get(artworkId)).then((v) => v ?? null, () => null);

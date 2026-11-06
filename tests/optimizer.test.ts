@@ -451,3 +451,53 @@ describe('geometric invariants hold for arbitrary orders (property based)', () =
   });
 });
 
+
+describe('gang runs: many products of the same size', () => {
+  const quantities = [18209, 5142, 6260, 5983, 6060, 6233, 5988, 6239, 6681, 6474, 6590, 5999, 6511, 30509, 6437, 5359, 1265, 310, 326, 557, 323, 266, 287, 282, 329];
+  const pieces = quantities.map((q, i) => piece(`p${i}`, 285, 54, q));
+  const job = input(pieces, [stock('41x57', 570, 410, 100000), stock('45x64', 450, 640, 100000), stock('50x70', 500, 700, 100000)], { kerf: 3, edgeMargin: 0, bladeLength: 920, maxRuntimeMs: 8000 });
+
+  it('fulfils a 25-product job within seconds, every plan valid', () => {
+    const { plans, runtimeMs } = optimize(job);
+    expect(runtimeMs).toBeLessThan(4000);
+    for (const plan of plans) {
+      expect(plan.fulfilled).toBe(true);
+      expect(validatePlan(plan, job)).toEqual([]);
+    }
+  });
+
+  it('offers the fewest layouts the sheet allows and saves paper with more of them', () => {
+    const { plans } = optimize(job);
+    // 25 products on at most 18 slots a sheet: one layout is impossible, two are enough.
+    expect(Math.min(...plans.map((p) => p.sheets.length))).toBe(2);
+    const fewest = plans.reduce((a, b) => (a.sheets.length <= b.sheets.length ? a : b));
+    expect(Math.min(...plans.map((p) => p.totals.stockArea))).toBeLessThan(fewest.totals.stockArea);
+  });
+
+  it('puts all products on one layout when they fit on one sheet', () => {
+    const small = input([piece('a', 100, 100, 500), piece('b', 100, 100, 500), piece('c', 100, 100, 1000)], [stock('s', 410, 410, 1000)], { kerf: 0, edgeMargin: 0 });
+    const plan = optimize(small).plans[0]!;
+    expect(plan.fulfilled).toBe(true);
+    expect(plan.sheets).toHaveLength(1);
+    expect(plan.sheets[0]!.copies).toBe(125);
+    expect(validatePlan(plan, small)).toEqual([]);
+  });
+
+  it('is not used when the stock cannot hold the job', () => {
+    const short = input([piece('a', 100, 100, 500), piece('b', 100, 100, 500), piece('c', 100, 100, 500)], [stock('s', 210, 210, 10)], { kerf: 0, edgeMargin: 0 });
+    const { plans } = optimize(short);
+    expect(plans[0]!.fulfilled).toBe(false);
+    expect(validatePlan(plans[0]!, short)).toEqual([]);
+  });
+});
+
+describe('running out of time', () => {
+  it('still finishes the plan when the stock is enough, and says the search was cut short', () => {
+    const pieces = Array.from({ length: 40 }, (_, i) => piece(`p${i}`, 40 + i * 7, 30 + i * 5, 900 + i * 13));
+    const job = input(pieces, [stock('a', 700, 1000, 100000), stock('b', 640, 900, 100000)], { kerf: 3, edgeMargin: 0, maxRuntimeMs: 200 });
+    const result = optimize(job);
+    expect(result.plans[0]!.fulfilled).toBe(true);
+    expect(validatePlan(result.plans[0]!, job)).toEqual([]);
+    expect(result.stoppedBy).toBe('timeLimit');
+  }, 30_000);
+});

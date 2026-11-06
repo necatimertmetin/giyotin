@@ -14,6 +14,7 @@ import { fromDto, isValid, newLine, OrderEditor, toDto, type DraftLine } from '.
 import { PlanComparison, planName } from '../components/PlanComparison';
 import { PlanView } from '../components/PlanView';
 import { SettingsStep } from '../components/SettingsStep';
+import { StockPicker } from '../components/StockPicker';
 import { fmtDuration, fmtNum } from '../format';
 import { useLoad, useMachine, useToast } from '../hooks';
 import { issueText } from '../labels';
@@ -33,6 +34,7 @@ export function NewJobPage(): ReactElement {
   const [orderName, setOrderName] = useState('');
   const [orderNotes, setOrderNotes] = useState('');
   const [lines, setLines] = useState<DraftLine[]>([newLine()]);
+  const [skippedStock, setSkippedStock] = useState<Set<number>>(new Set());
   const [run, setRun] = useState<RunDto | null>(null);
   const [selectedPlan, setSelectedPlan] = useState('');
   const [running, setRunning] = useState(false);
@@ -56,10 +58,15 @@ export function NewJobPage(): ReactElement {
     return [...m.entries()].map(([key, label]) => ({ key, label })).sort((a, b) => a.label.localeCompare(b.label, 'tr'));
   }, [stock.data]);
 
-  const valid = lines.length > 0 && lines.every(isValid);
+  const usableStock = useMemo(() => (stock.data ?? []).filter((s) => s.status === 'active' && s.quantity > 0), [stock.data]);
+  const chosenStock = useMemo(() => usableStock.filter((s) => !skippedStock.has(s.id)), [usableStock, skippedStock]);
+  // Left out when everything is chosen, so paper added elsewhere is never missed.
+  const stockIds = chosenStock.length === usableStock.length ? undefined : chosenStock.map((s) => s.id);
+
+  const valid = lines.length > 0 && lines.every(isValid) && (usableStock.length === 0 || chosenStock.length > 0);
 
   // Any change to the order or the settings makes a shown result out of date.
-  const signature = JSON.stringify([lines.map(toDto), effective]);
+  const signature = JSON.stringify([lines.map(toDto), effective, stockIds]);
   const ranSignature = useRef<string | null>(null);
   const optimizeRef = useRef<() => Promise<void>>(async () => undefined);
   const outdated = run !== null && ranSignature.current !== signature;
@@ -81,7 +88,7 @@ export function NewJobPage(): ReactElement {
 
   const optimize = async (): Promise<void> => {
     if (!valid) {
-      setError('Önce sipariş satırlarındaki hataları düzeltin (ürün adı, ölçüler ve adet gerekli).');
+      setError(lines.every(isValid) ? 'Hesaplama için en az bir kağıt seçin.' : 'Önce sipariş satırlarındaki hataları düzeltin (ürün adı, ölçüler ve adet gerekli).');
       return;
     }
     ranSignature.current = signature;
@@ -91,7 +98,7 @@ export function NewJobPage(): ReactElement {
     setRunning(true);
     setError(null);
     try {
-      const result = await api.optimize({ orderId, lines: lines.map(toDto), settings: { ...effective, ...SEARCH } }, controller.signal);
+      const result = await api.optimize({ orderId, lines: lines.map(toDto), settings: { ...effective, ...SEARCH }, stockIds }, controller.signal);
       setRun(result);
       setSelectedPlan(result.result.plans[0]?.id ?? '');
       // The last used settings become the starting point of the next job.
@@ -108,7 +115,7 @@ export function NewJobPage(): ReactElement {
 
   const saveOrder = async (): Promise<void> => {
     if (!orderName.trim()) return setError('Siparişi kaydetmek için bir ad girin.');
-    if (!valid) return setError('Kaydetmeden önce satırlardaki hataları düzeltin.');
+    if (!lines.every(isValid)) return setError('Kaydetmeden önce satırlardaki hataları düzeltin.');
     try {
       const body = { name: orderName.trim(), notes: orderNotes.trim() || null, lines: lines.map(toDto) };
       const saved = orderId ? await api.orders.update(orderId, body) : await api.orders.create(body);
@@ -171,10 +178,11 @@ export function NewJobPage(): ReactElement {
             <Button startIcon={<SaveIcon />} variant="outlined" color="secondary" onClick={saveOrder} data-testid="save-order">Kaydet</Button>
             {orderId && <Button startIcon={<DeleteIcon />} color="error" onClick={deleteOrder}>Sil</Button>}
           </Stack>
-          <OrderEditor lines={lines} onChange={setLines} stock={stock.data ?? []} materials={materials} settings={effective} />
+          <OrderEditor lines={lines} onChange={setLines} stock={chosenStock} materials={materials} settings={effective} />
           <Stack direction="row" justifyContent="space-between">
             <Button startIcon={<AddIcon />} onClick={() => setLines([...lines, newLine()])} data-testid="add-line">Ürün satırı ekle</Button>
           </Stack>
+          <StockPicker stock={usableStock} skipped={skippedStock} onChange={setSkippedStock} />
         </Stack>
 
         <SettingsStep

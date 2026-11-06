@@ -22,6 +22,7 @@ import ContentCopyIcon from '@mui/icons-material/ContentCopy';
 import DeleteIcon from '@mui/icons-material/DeleteOutline';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import UploadFileIcon from '@mui/icons-material/UploadFile';
+import SameAsAboveIcon from '@mui/icons-material/VerticalAlignBottom';
 import { Fragment, useRef, useState, type DragEvent, type ReactElement } from 'react';
 import { allowedOrientations, edgeMarginsOf, toUnits, type CuttingSettings, type EdgeMargins } from '../../engine';
 import type { OrderLineDto, StockItemDto } from '../../shared/api';
@@ -198,9 +199,10 @@ export function OrderEditor({ lines, onChange, stock, materials, settings }: Pro
             <TableRow>
               <TableCell sx={{ width: 40 }} />
               <TableCell sx={{ minWidth: 160 }}>Ürün</TableCell>
-              <TableCell sx={{ width: 120 }}>Genişlik</TableCell>
-              <TableCell sx={{ width: 120 }}>Yükseklik</TableCell>
-              <TableCell sx={{ width: 110 }}>Adet</TableCell>
+              <TableCell sx={{ width: 130, minWidth: 130 }}>Genişlik</TableCell>
+              <TableCell sx={{ width: 130, minWidth: 130 }}>Yükseklik</TableCell>
+              <TableCell padding="none" sx={{ width: 40 }} />
+              <TableCell sx={{ width: 120, minWidth: 120 }}>Adet</TableCell>
               <TableCell sx={{ minWidth: 190 }}>Kağıt cinsi</TableCell>
               <TableCell align="right" sx={{ width: 100 }}>İşlem</TableCell>
             </TableRow>
@@ -211,6 +213,7 @@ export function OrderEditor({ lines, onChange, stock, materials, settings }: Pro
               const showErr = l.name !== '' || l.width !== null || l.height !== null || l.quantity !== null;
               const nofit = fitsNowhere(l, stock, edgeMarginsOf(settings));
               const expanded = open.has(l.key);
+              const above = lines[idx - 1];
               return (
                 <Fragment key={l.key}>
                   <TableRow data-testid={`line-${idx}`}>
@@ -230,6 +233,13 @@ export function OrderEditor({ lines, onChange, stock, materials, settings }: Pro
                     </TableCell>
                     <TableCell><NumberField fullWidth unit="mm" value={l.width} onChange={(v) => update(l.key, { width: v })} error={showErr && !!err.width} helperText={showErr ? err.width : undefined} inputProps={{ 'aria-label': 'Genişlik', 'data-testid': `line-width-${idx}` }} /></TableCell>
                     <TableCell><NumberField fullWidth unit="mm" value={l.height} onChange={(v) => update(l.key, { height: v })} error={showErr && !!err.height} helperText={showErr ? err.height : undefined} inputProps={{ 'aria-label': 'Yükseklik', 'data-testid': `line-height-${idx}` }} /></TableCell>
+                    <TableCell padding="none">
+                      {above && (
+                        <Tooltip title="Ölçüler üsttekiyle aynı">
+                          <span><IconButton size="small" aria-label="Ölçüler üsttekiyle aynı" disabled={above.width === null && above.height === null} onClick={() => update(l.key, { width: above.width, height: above.height })} data-testid={`line-same-${idx}`}><SameAsAboveIcon fontSize="small" /></IconButton></span>
+                        </Tooltip>
+                      )}
+                    </TableCell>
                     <TableCell><NumberField fullWidth value={l.quantity} onChange={(v) => update(l.key, { quantity: v })} error={showErr && !!err.quantity} helperText={showErr ? err.quantity : undefined} inputProps={{ 'aria-label': 'Adet', 'data-testid': `line-qty-${idx}` }} /></TableCell>
                     <TableCell>
                       <TextField select fullWidth value={l.materialKey ?? ''} onChange={(e) => update(l.key, { materialKey: e.target.value || null })} inputProps={{ 'aria-label': 'Kağıt cinsi' }} SelectProps={{ displayEmpty: true, renderValue: (v) => (v === '' ? 'Fark etmez' : (materials.find((m) => m.key === v)?.label ?? String(v))) }}>
@@ -243,7 +253,7 @@ export function OrderEditor({ lines, onChange, stock, materials, settings }: Pro
                     </TableCell>
                   </TableRow>
                   <TableRow>
-                    <TableCell colSpan={7} sx={{ py: 0, borderBottom: expanded ? undefined : 0 }}>
+                    <TableCell colSpan={8} sx={{ py: 0, borderBottom: expanded ? undefined : 0 }}>
                       <Collapse in={expanded} unmountOnExit>
                         <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', md: '2fr 1fr 1fr 1fr' }, gap: 2, py: 1.5 }}>
                           <TextField label="Not" value={l.notes} onChange={(e) => update(l.key, { notes: e.target.value })} />

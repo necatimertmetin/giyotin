@@ -1,4 +1,4 @@
-import type { ConfirmRequest, OptimizeRequest } from '../src/shared/api';
+import type { BackupDto, ConfirmRequest, OptimizeRequest } from '../src/shared/api';
 import type { Optimizer } from './optimizeRunner';
 import type { Db } from './schema';
 import * as svc from './services';
@@ -63,6 +63,8 @@ export function buildRoutes(db: Db, optimizer: Optimizer): Route[] {
 
     // Danger zone
     { method: 'POST', path: '/api/admin/reset', handler: (r) => (svc.resetAllData(db, b<{ confirm?: unknown }>(r).confirm), noContent()) },
+    { method: 'GET', path: '/api/admin/export', handler: () => ok(svc.exportData(db)) },
+    { method: 'POST', path: '/api/admin/import', handler: (r) => ok(svc.importData(db, b<Partial<BackupDto>>(r))) },
 
     // Stock
     { method: 'GET', path: '/api/stock', handler: () => ok(svc.listStock(db)) },
@@ -92,7 +94,8 @@ export function buildRoutes(db: Db, optimizer: Optimizer): Route[] {
         // The configured machine decides the blade length, whatever the request says.
         const machine = svc.getMachine(db);
         const settings = machine ? { ...parsed, bladeLength: machine.bladeLength } : parsed;
-        const { input, versions } = svc.buildOptimizationInput(db, lines, settings);
+        const stockIds = Array.isArray(body.stockIds) ? body.stockIds.filter((id) => Number.isInteger(id)) : undefined;
+        const { input, versions } = svc.buildOptimizationInput(db, lines, settings, stockIds);
         const orderName = body.orderId ? svc.getOrder(db, body.orderId).name : 'Adsız sipariş';
         try {
           const result = await optimizer(input, r.signal);

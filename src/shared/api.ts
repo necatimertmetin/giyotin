@@ -77,6 +77,24 @@ export interface OptimizeRequest {
   orderId: number | null;
   lines: OrderLineDto[];
   settings: CuttingSettings;
+  /** Inventory items to calculate with; all usable ones when left out. */
+  stockIds?: number[];
+}
+
+/** What an import added; `skipped` records were already here. */
+export interface ImportSummary {
+  stock: number;
+  orders: number;
+  jobs: number;
+  skipped: number;
+}
+
+/** Everything in the database, as one file. */
+export interface BackupDto {
+  app: 'giyotin';
+  version: number;
+  exportedAt: string;
+  tables: Record<string, Array<Record<string, unknown>>>;
 }
 
 export interface RunDto {

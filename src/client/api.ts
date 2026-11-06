@@ -1,5 +1,7 @@
 import type {
   ArtworkDto,
+  BackupDto,
+  ImportSummary,
   ConfirmRequest,
   CustomPaperDto,
   JobDto,
@@ -79,6 +81,8 @@ export const api = {
   },
   admin: {
     resetAll: () => request<void>('POST', '/api/admin/reset', { confirm: 'TUM-VERILERI-SIL' }),
+    exportAll: () => request<BackupDto>('GET', '/api/admin/export'),
+    importAll: (backup: BackupDto) => request<ImportSummary>('POST', '/api/admin/import', backup),
   },
   orders: {
     list: () => request<OrderDto[]>('GET', '/api/orders'),

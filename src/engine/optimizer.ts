@@ -5,6 +5,7 @@ import {
   scaleTree,
   toUnits,
   UNIT,
+  walk,
   type Orientation,
   type Rect,
 } from './geometry';
@@ -593,6 +594,251 @@ function layoutStates(ctx: Ctx, combos: Array<Set<number>>, budget: SearchBudget
   return new Map([...best].map(([k, v]) => [k, v.state]));
 }
 
+// ---------------------------------------------------------------------------------------------
+// Gang runs: many products of the same size
+// ---------------------------------------------------------------------------------------------
+
+/** Products that can take each other's place on a sheet: same orientations on every stock. */
+function sizeClasses(ctx: Ctx): number[][] {
+  const classes = new Map<string, number[]>();
+  ctx.initialRem.forEach((r, i) => {
+    if (r <= 0) return;
+    const key = JSON.stringify(ctx.orientations.map((perPiece) => perPiece[i]));
+    classes.set(key, [...(classes.get(key) ?? []), i]);
+  });
+  return [...classes.values()];
+}
+
+/** The search problem with every size class as one product whose demand is the class total. */
+function mergedCtx(ctx: Ctx, classes: number[][]): Ctx {
+  return {
+    ...ctx,
+    orientations: ctx.orientations.map((perPiece) => classes.map((c) => perPiece[c[0]!]!)),
+    pieceAreaMm: classes.map((c) => ctx.pieceAreaMm[c[0]!]!),
+    pieceIds: classes.map((_, c) => String(c)),
+    initialRem: classes.map((c) => c.reduce((a, i) => a + (ctx.initialRem[i] ?? 0), 0)),
+    capacity: ctx.capacity.map((perPiece) => classes.map((c) => perPiece[c[0]!]!)),
+    cache: new Map(),
+  };
+}
+
+/** A layout covering `demand` in as few copies as possible: m grows until one sheet holds ceil(demand / m). */
+function coverLayout(ctx: Ctx, j: number, demand: number[], maxCopies: number, budget: SearchBudget): Group | null {
+  const usable = ctx.stocks[j]!.usable;
+  const area = demand.reduce((a, r, i) => a + r * (ctx.pieceAreaMm[i] ?? 0), 0);
+  const covering = (m: number): SheetPattern | undefined => {
+    const want = demand.map((r) => Math.ceil(r / m));
+    return sheetPatterns(ctx, j, want, budget).find((p) => want.every((w, i) => (p.counts[i] ?? 0) >= w));
+  };
+  let lo = Math.max(1, Math.ceil(area / ((usable.w * usable.h) / UNIT2))) - 1;
+  let hi = lo + 1;
+  let pattern = covering(hi);
+  while (!pattern && hi < maxCopies) {
+    if (budgetExhausted(budget)) return null;
+    lo = hi;
+    hi = Math.min(maxCopies, Math.ceil(hi * 1.1) + 1);
+    pattern = covering(hi);
+  }
+  if (!pattern) return null;
+  while (hi - lo > 1 && !budgetExhausted(budget)) {
+    const mid = Math.floor((lo + hi) / 2);
+    const p = covering(mid);
+    if (p) {
+      hi = mid;
+      pattern = p;
+    } else lo = mid;
+  }
+  return { stock: j, pattern, copies: hi };
+}
+
+/** One repeated layout: m sheets, and how many slots of its class each product gets (class by class). */
+interface GangRun {
+  m: number;
+  slots: Array<Array<[piece: number, count: number]>>;
+}
+
+interface GangState {
+  rem: number[];
+  runs: GangRun[];
+  sheets: number;
+}
+
+/** Time always granted to finish a plan the search left incomplete. */
+const GRACE_MS = 10_000;
+
+const GANG_BEAM = 16;
+const GANG_MAX_LAYOUTS = 12;
+/** Share of the paper a plan with more layouts has to save to be listed. */
+const GANG_MIN_SAVING = 0.005;
+
+/** Slots for m sheets: as many as a product can fill exactly, then the spare ones to whoever is short most. */
+function gangRun(rem: number[], classes: number[][], capacity: number[], m: number): GangRun {
+  const slots = classes.map((members, c) => {
+    const open = members.filter((i) => (rem[i] ?? 0) > 0).sort((a, b) => (rem[b] ?? 0) - (rem[a] ?? 0) || a - b);
+    const given = new Map<number, number>();
+    let free = capacity[c] ?? 0;
+    for (const i of open) {
+      const take = Math.min(free, Math.floor((rem[i] ?? 0) / m));
+      if (take > 0) given.set(i, take);
+      free -= take;
+    }
+    const short = (i: number): number => (rem[i] ?? 0) - (given.get(i) ?? 0) * m;
+    for (const i of [...open].sort((a, b) => short(b) - short(a) || a - b)) {
+      if (free <= 0 || short(i) <= 0) break;
+      given.set(i, (given.get(i) ?? 0) + 1);
+      free--;
+    }
+    // A slot nobody needs is still cut; it goes to the largest product of the class, as a few extra copies.
+    const filler = open[0] ?? members[0]!;
+    if (free > 0) given.set(filler, (given.get(filler) ?? 0) + free);
+    return [...given.entries()].sort((a, b) => a[0] - b[0]);
+  });
+  return { m, slots };
+}
+
+const applyRun = (s: GangState, run: GangRun): GangState => {
+  const rem = s.rem.slice();
+  for (const cls of run.slots) for (const [i, n] of cls) rem[i] = Math.max(0, (rem[i] ?? 0) - n * run.m);
+  return { rem, runs: [...s.runs, run], sheets: s.sheets + run.m };
+};
+
+/** The fewest sheets with which one more layout finishes everything, or null if the products do not fit one sheet. */
+function finishingCopies(rem: number[], classes: number[][], capacity: number[]): number | null {
+  let need = 1;
+  for (let c = 0; c < classes.length; c++) {
+    const open = classes[c]!.map((i) => rem[i] ?? 0).filter((r) => r > 0);
+    const cap = capacity[c] ?? 0;
+    if (open.length > cap) return null;
+    if (open.length === 0) continue;
+    let lo = 0;
+    let hi = Math.max(...open);
+    while (hi - lo > 1) {
+      const mid = Math.floor((lo + hi) / 2);
+      if (open.reduce((a, r) => a + Math.ceil(r / mid), 0) <= cap) hi = mid;
+      else lo = mid;
+    }
+    need = Math.max(need, hi);
+  }
+  return need;
+}
+
+/**
+ * Splits the sheets of one physical layout into repeated layouts that differ only in which product sits on which
+ * slot. Plain arithmetic, so it is instant: a beam search over the number of sheets of each layout. Returns the
+ * fewest sheets found per number of layouts.
+ */
+function gangSplit(demand: number[], classes: number[][], capacity: number[]): Map<number, GangState> {
+  const best = new Map<number, GangState>();
+  const openCount = (rem: number[]): number => rem.filter((r) => r > 0).length;
+  const bound = (rem: number[]): number =>
+    Math.max(0, ...classes.map((members, c) => Math.ceil(members.reduce((a, i) => a + (rem[i] ?? 0), 0) / Math.max(1, capacity[c] ?? 0))));
+  let beam: GangState[] = [{ rem: demand, runs: [], sheets: 0 }];
+  for (let depth = 1; depth <= GANG_MAX_LAYOUTS && beam.length > 0; depth++) {
+    const next = new Map<string, GangState>();
+    for (const s of beam) {
+      const m = finishingCopies(s.rem, classes, capacity);
+      if (m !== null) {
+        const done = applyRun(s, gangRun(s.rem, classes, capacity, m));
+        const prev = best.get(depth);
+        if (openCount(done.rem) === 0 && (!prev || done.sheets < prev.sheets)) best.set(depth, done);
+      }
+      const options = new Set<number>();
+      classes.forEach((members, c) => {
+        for (const i of members) for (let n = 1; n <= (capacity[c] ?? 0); n++) options.add(Math.floor((s.rem[i] ?? 0) / n));
+      });
+      options.delete(0);
+      for (const m2 of options) {
+        const child = applyRun(s, gangRun(s.rem, classes, capacity, m2));
+        const key = child.rem.join(',');
+        const prev = next.get(key);
+        if (openCount(child.rem) > 0 && (!prev || child.sheets < prev.sheets)) next.set(key, child);
+      }
+    }
+    // Half the beam is closest to the fewest sheets, half has the fewest products left (fewest layouts).
+    const pool = [...next.values()];
+    const score = (s: GangState): number => s.sheets + bound(s.rem);
+    const byPaper = [...pool].sort((a, b) => score(a) - score(b) || openCount(a.rem) - openCount(b.rem));
+    const byProducts = [...pool].sort((a, b) => openCount(a.rem) - openCount(b.rem) || score(a) - score(b));
+    beam = [...new Set([...byPaper.slice(0, GANG_BEAM / 2), ...byProducts.slice(0, GANG_BEAM / 2)])];
+  }
+  return best;
+}
+
+/** The physical layout with its class slots handed out to real products, neighbouring slots to the same product. */
+function labelPattern(pattern: SheetPattern, run: GangRun, ctx: Ctx): SheetPattern {
+  const queues = run.slots.map((cls) => cls.flatMap(([i, n]) => new Array<number>(n).fill(i)));
+  const counts = ctx.pieceIds.map(() => 0);
+  const tree = JSON.parse(JSON.stringify(pattern.tree)) as SheetPattern['tree'];
+  walk(tree, (n) => {
+    if (n.type !== 'piece') return;
+    const i = queues[Number(n.pieceId)]!.shift()!;
+    n.pieceId = ctx.pieceIds[i]!;
+    counts[i] = (counts[i] ?? 0) + 1;
+  });
+  return { ...pattern, tree, counts };
+}
+
+/**
+ * Plans for orders with many products of the same size. The geometry is searched once per size class, which makes
+ * the problem small, and the products are then assigned to the slots. Returns the states by number of layouts.
+ * Each plan uses one stock format, so an order with several paper types is left to the regular search.
+ */
+function gangStates(ctx: Ctx, classes: number[][], budget: SearchBudget): Map<number, OuterState> {
+  const prof = PROFILES[0]!;
+  const merged = mergedCtx(ctx, classes);
+  const best = new Map<number, OuterState>();
+  for (const stock of ctx.stocks) {
+    const j = stock.index;
+    if (classes.some((_, c) => (merged.orientations[j]![c]?.length ?? 0) === 0)) continue;
+    const left = ctx.input.stocks[j]!.quantity;
+    const layout = coverLayout(merged, j, merged.initialRem, left, budget);
+    if (!layout) continue;
+    for (const [k, s] of gangSplit(ctx.initialRem, classes, layout.pattern.counts)) {
+      if (s.sheets > left) continue;
+      let state = restart(ctx, [], prof);
+      for (const run of s.runs) state = applyGroup(ctx, state, j, labelPattern(layout.pattern, run, ctx), run.m, prof);
+      state = { ...state, rem: state.rem.map((r) => Math.max(0, r)) };
+      const prev = best.get(k);
+      if (!prev || finalScore(ctx, state) < finalScore(ctx, prev)) best.set(k, state);
+    }
+  }
+  return best;
+}
+
+/** Layout counts worth offering: each must save paper over the plans with fewer layouts. */
+function worthwhileLayouts(states: Map<number, OuterState>, ctx: Ctx, maxPlans = 3): Map<number, OuterState> {
+  const kept: Array<[number, OuterState]> = [];
+  for (const [k, s] of [...states].sort((a, b) => a[0] - b[0])) {
+    const last = kept[kept.length - 1];
+    if (!last || finalScore(ctx, s) < finalScore(ctx, last[1]) * (1 - GANG_MIN_SAVING)) kept.push([k, s]);
+  }
+  if (kept.length <= maxPlans) return new Map(kept);
+  // The fewest layouts, the least paper, and the middle one between them.
+  return new Map([kept[0]!, kept[Math.floor(kept.length / 2)]!, kept[kept.length - 1]!]);
+}
+
+/** Finishes a plan the search ran out of time on: one quick pattern after another, while stock lasts. */
+function completeGreedily(ctx: Ctx, start: OuterState, prof: Profile, budget: SearchBudget): OuterState {
+  let s = start;
+  while (remArea(ctx, s.rem) > 0 && !budgetExhausted(budget)) {
+    let best: { j: number; pattern: SheetPattern; r: number } | null = null;
+    for (const stock of ctx.stocks) {
+      const j = stock.index;
+      if ((s.left[j] ?? 0) <= 0) continue;
+      for (const pattern of sheetPatterns(ctx, j, s.rem, budget, 2, 4)) {
+        const r = ratioOf(ctx, stock, pattern, prof);
+        if (!best || r < best.r) best = { j, pattern, r };
+      }
+    }
+    if (!best) break;
+    let m = s.left[best.j] ?? 0;
+    for (const [i, c] of best.pattern.counts.entries()) if (c > 0) m = Math.min(m, Math.floor((s.rem[i] ?? 0) / c));
+    if (m < 1) break;
+    s = applyGroup(ctx, s, best.j, best.pattern, m, prof);
+  }
+  return s;
+}
+
 function planScore(ctx: Ctx, plan: Plan, prof: Profile): number {
   const cw = costWeightOf(ctx, prof);
   const material = plan.totals.stockArea - prof.offcutCredit * plan.totals.offcutArea;
@@ -700,7 +946,13 @@ export function optimize(input: OptimizationInput, options: OptimizeOptions = {}
   const candidates: Plan[] = [];
   let layouts = new Map<number, OuterState>();
   const hasWork = ctx.initialRem.some((r) => r > 0);
-  if (hasWork) {
+  // Same-size products: the fast path. When most of the order is like that, the piece-by-piece search below has
+  // nothing to add and cannot finish in time anyway.
+  const open = ctx.initialRem.filter((r) => r > 0).length;
+  const classes = hasWork ? sizeClasses(ctx) : [];
+  const gang = classes.length < open ? worthwhileLayouts(gangStates(ctx, classes, { ...budget, deadline: started + totalMs / 4 }), ctx) : new Map<number, OuterState>();
+  for (const state of gang.values()) candidates.push(buildPlan(ctx, state, profiles[0]!));
+  if (hasWork && !(gang.size > 0 && classes.length * 2 <= open)) {
     const width = Math.max(2, Math.ceil(settings.searchWidth / 2));
     // Estimate the best achievable material ratio once, for the outer heuristic.
     const baseProf = profiles[0]!;
@@ -715,6 +967,8 @@ export function optimize(input: OptimizationInput, options: OptimizeOptions = {}
 
     // One extra slot for the "single stock type" plans, searched after all profiles.
     const slots = profiles.length + 1;
+    let partial = null as { state: OuterState; prof: Profile } | null;
+    let cutShort = false;
     profiles.forEach((prof, k) => {
       if (budget.stopped !== 'completed' && candidates.length > 0) return;
       const sliceEnd = started + (totalMs * (k + 1)) / slots;
@@ -722,11 +976,15 @@ export function optimize(input: OptimizationInput, options: OptimizeOptions = {}
       const start = restart(ctx, [], prof);
       const finished = runOuter(ctx, start, width, prof, sub);
       const top = finished[0];
-      if (top) candidates.push(buildPlan(ctx, improve(ctx, top, prof, sub, width), prof));
+      if (top) {
+        const improved = improve(ctx, top, prof, sub, width);
+        candidates.push(buildPlan(ctx, improved, prof));
+        if (!partial || finalScore(ctx, improved) < finalScore(ctx, partial.state)) partial = { state: improved, prof };
+      }
       for (const extra of finished.slice(1, 3)) candidates.push(buildPlan(ctx, extra, prof));
       budget.nodes += sub.nodes;
       if (sub.stopped === 'cancelled') budget.stopped = 'cancelled';
-      else if (sub.stopped === 'timeLimit' && now() > budget.deadline) budget.stopped = 'timeLimit';
+      else if (sub.stopped === 'timeLimit') cutShort = true;
     });
 
     // "Kalıp" plans: one stock format per paper type, cut with at most 1, 2 or 3 different layouts.
@@ -734,7 +992,17 @@ export function optimize(input: OptimizationInput, options: OptimizeOptions = {}
       const base = started + (totalMs * profiles.length) / slots;
       layouts = layoutStates(ctx, singleStockCombos(ctx), budget, Math.max(now(), base), totalMs / slots, width, MAX_LAYOUTS);
     }
+
+    if (cutShort && budget.stopped === 'completed') budget.stopped = 'timeLimit';
+
+    // Out of time with stock to spare: a plan that stops halfway helps nobody, so the best one is finished quickly.
+    if (partial && budget.stopped !== 'cancelled' && !candidates.some((p) => p.fulfilled)) {
+      const grace: SearchBudget = { ...budget, stopped: 'completed', deadline: now() + Math.max(totalMs, GRACE_MS) };
+      candidates.push(buildPlan(ctx, completeGreedily(ctx, partial.state, partial.prof, grace), partial.prof));
+      budget.nodes = grace.nodes;
+    }
   }
+  for (const [k, state] of gang) layouts.set(k, state);
 
   // Deduplicate equivalent plans and rank them by the balanced objective.
   const unique = new Map<string, Plan>();
@@ -760,14 +1028,13 @@ export function optimize(input: OptimizationInput, options: OptimizeOptions = {}
     } else ranked.push({ ...plan, tags: tag ? [tag] : [] });
   };
   const cheapKey = (p: Plan): number => (p.totals.cost !== null ? p.totals.cost : p.totals.stockArea);
-  for (let k = 1; k <= MAX_LAYOUTS; k++) {
-    const state = layouts.get(k);
-    if (!state) continue;
+  for (const k of [...layouts.keys()].sort((a, b) => a - b)) {
+    const state = layouts.get(k)!;
     const plan = buildPlan(ctx, state, balanced);
     if (!plan.fulfilled && fulfilledFirst.some((p) => p.fulfilled)) continue;
-    // A plan with more layouts is only worth listing if it saves something: fewer cut steps or fewer sheets.
+    // A plan with more layouts is only worth listing if it saves something: fewer cut steps, sheets or paper.
     const steps = cutSteps;
-    if (ranked.some((q) => q.tags?.some((t) => t.startsWith('layouts-')) && steps(q) <= steps(plan) && q.totals.sheetCount <= plan.totals.sheetCount)) continue;
+    if (ranked.some((q) => q.tags?.some((t) => t.startsWith('layouts-')) && steps(q) <= steps(plan) && q.totals.sheetCount <= plan.totals.sheetCount && cheapKey(q) <= cheapKey(plan))) continue;
     // Listed under its real layout count (a search for "3" may find a plan with fewer).
     addPlan(plan, `layouts-${plan.sheets.length}`);
   }
