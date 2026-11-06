@@ -666,18 +666,36 @@ interface GangState {
 /** Time always granted to finish a plan the search left incomplete. */
 const GRACE_MS = 10_000;
 
-const GANG_BEAM = 16;
+const GANG_BEAM = 32;
 const GANG_MAX_LAYOUTS = 12;
+/** How much extra a product may get to be finished in a layout (null: fill by exact fit only). */
+const GANG_FINISH_MARGINS = [null, 0.04, 0.1, 0.2];
+/** Share of the order that may be produced in excess by a plan we recommend. */
+const GANG_MAX_EXCESS = 0.05;
 /** Share of the paper a plan with more layouts has to save to be listed. */
 const GANG_MIN_SAVING = 0.005;
 
-/** Slots for m sheets: as many as a product can fill exactly, then the spare ones to whoever is short most. */
-function gangRun(rem: number[], classes: number[][], capacity: number[], m: number): GangRun {
+/**
+ * Slots for m sheets. A press operator's reasoning: every product that m sheets can finish with little excess is
+ * finished here, so no small tail of it needs another layout; the free slots go to what can fill them exactly, and
+ * the spare ones to whoever is short most. `finishMargin` null skips the first step.
+ */
+function gangRun(rem: number[], classes: number[][], capacity: number[], m: number, finishMargin: number | null = null): GangRun {
   const slots = classes.map((members, c) => {
     const open = members.filter((i) => (rem[i] ?? 0) > 0).sort((a, b) => (rem[b] ?? 0) - (rem[a] ?? 0) || a - b);
     const given = new Map<number, number>();
     let free = capacity[c] ?? 0;
+    if (finishMargin !== null) {
+      for (const i of open) {
+        const r = rem[i] ?? 0;
+        const n = Math.ceil(r / m);
+        if (n > free || n * m > r * (1 + finishMargin)) continue;
+        given.set(i, n);
+        free -= n;
+      }
+    }
     for (const i of open) {
+      if (given.has(i)) continue;
       const take = Math.min(free, Math.floor((rem[i] ?? 0) / m));
       if (take > 0) given.set(i, take);
       free -= take;
@@ -723,6 +741,30 @@ function finishingCopies(rem: number[], classes: number[][], capacity: number[])
 }
 
 /**
+ * With the slots fixed, each layout runs only as long as some product still needs it. Repeats until nothing shrinks,
+ * since a shorter run may let another one take over its work.
+ */
+function trimRuns(runs: GangRun[], demand: number[]): GangRun[] {
+  const sheets = runs.map((r) => r.m);
+  const slotsOf = runs.map((r) => new Map(r.slots.flat()));
+  for (let changed = true; changed; ) {
+    changed = false;
+    for (let j = 0; j < sheets.length; j++) {
+      let need = 0;
+      for (const [i, n] of slotsOf[j]!) {
+        const others = sheets.reduce((a, m, l) => (l === j ? a : a + m * (slotsOf[l]!.get(i) ?? 0)), 0);
+        need = Math.max(need, Math.ceil(((demand[i] ?? 0) - others) / n));
+      }
+      if (need < sheets[j]!) {
+        sheets[j] = need;
+        changed = true;
+      }
+    }
+  }
+  return runs.map((r, j) => ({ ...r, m: sheets[j]! })).filter((r) => r.m > 0);
+}
+
+/**
  * Splits the sheets of one physical layout into repeated layouts that differ only in which product sits on which
  * slot. Plain arithmetic, so it is instant: a beam search over the number of sheets of each layout. Returns the
  * fewest sheets found per number of layouts.
@@ -738,42 +780,88 @@ function gangSplit(demand: number[], classes: number[][], capacity: number[]): M
     for (const s of beam) {
       const m = finishingCopies(s.rem, classes, capacity);
       if (m !== null) {
-        const done = applyRun(s, gangRun(s.rem, classes, capacity, m));
-        const prev = best.get(depth);
-        if (openCount(done.rem) === 0 && (!prev || done.sheets < prev.sheets)) best.set(depth, done);
+        const finished = applyRun(s, gangRun(s.rem, classes, capacity, m));
+        if (openCount(finished.rem) === 0) {
+          const runs = trimRuns(finished.runs, demand);
+          const done: GangState = { ...finished, runs, sheets: runs.reduce((a, r) => a + r.m, 0) };
+          const prev = best.get(runs.length);
+          if (!prev || done.sheets < prev.sheets) best.set(runs.length, done);
+        }
       }
       const options = new Set<number>();
       classes.forEach((members, c) => {
-        for (const i of members) for (let n = 1; n <= (capacity[c] ?? 0); n++) options.add(Math.floor((s.rem[i] ?? 0) / n));
+        for (const i of members) {
+          for (let n = 1; n <= (capacity[c] ?? 0); n++) {
+            options.add(Math.floor((s.rem[i] ?? 0) / n));
+            options.add(Math.ceil((s.rem[i] ?? 0) / n));
+          }
+        }
       });
       options.delete(0);
       for (const m2 of options) {
-        const child = applyRun(s, gangRun(s.rem, classes, capacity, m2));
-        const key = child.rem.join(',');
-        const prev = next.get(key);
-        if (openCount(child.rem) > 0 && (!prev || child.sheets < prev.sheets)) next.set(key, child);
+        for (const margin of GANG_FINISH_MARGINS) {
+          const child = applyRun(s, gangRun(s.rem, classes, capacity, m2, margin));
+          const key = child.rem.join(',');
+          const prev = next.get(key);
+          if (openCount(child.rem) > 0 && (!prev || child.sheets < prev.sheets)) next.set(key, child);
+        }
       }
     }
-    // Half the beam is closest to the fewest sheets, half has the fewest products left (fewest layouts).
+    // The beam holds what is closest to the fewest sheets, what has the fewest products left, and what one more
+    // layout could finish with the fewest sheets in total: that last group is what finds plans with few layouts.
     const pool = [...next.values()];
+    const finishCost = new Map(pool.map((s) => [s, s.sheets + (finishingCopies(s.rem, classes, capacity) ?? Number.POSITIVE_INFINITY)]));
     const score = (s: GangState): number => s.sheets + bound(s.rem);
     const byPaper = [...pool].sort((a, b) => score(a) - score(b) || openCount(a.rem) - openCount(b.rem));
     const byProducts = [...pool].sort((a, b) => openCount(a.rem) - openCount(b.rem) || score(a) - score(b));
-    beam = [...new Set([...byPaper.slice(0, GANG_BEAM / 2), ...byProducts.slice(0, GANG_BEAM / 2)])];
+    const byFinish = [...pool].sort((a, b) => finishCost.get(a)! - finishCost.get(b)!);
+    beam = [...new Set([...byPaper.slice(0, GANG_BEAM / 2), ...byProducts.slice(0, GANG_BEAM / 2), ...byFinish.slice(0, GANG_BEAM / 2)])];
   }
   return best;
 }
 
-/** The physical layout with its class slots handed out to real products, neighbouring slots to the same product. */
+/** Slots in a path where each one touches the next: along the shorter lines of the grid, every other line reversed. */
+function snakeOrder<T extends { x: number; y: number }>(slots: T[]): T[] {
+  const xs = new Set(slots.map((n) => n.x)).size;
+  const ys = new Set(slots.map((n) => n.y)).size;
+  const across = xs <= ys; // lines run left to right when there are fewer columns than rows
+  const lines = new Map<number, T[]>();
+  for (const n of slots) {
+    const key = across ? n.y : n.x;
+    lines.set(key, [...(lines.get(key) ?? []), n]);
+  }
+  return [...lines.entries()]
+    .sort((a, b) => a[0] - b[0])
+    .flatMap(([, line], i) => {
+      const sorted = line.sort((a, b) => (across ? a.x - b.x : a.y - b.y));
+      return i % 2 === 0 ? sorted : sorted.reverse();
+    });
+}
+
+/**
+ * The physical layout with its class slots handed out to real products, along a path of touching slots, so a product
+ * is never split diagonally. Products that fill whole lines go first, so they stay in neat blocks.
+ */
 function labelPattern(pattern: SheetPattern, run: GangRun, ctx: Ctx): SheetPattern {
-  const queues = run.slots.map((cls) => cls.flatMap(([i, n]) => new Array<number>(n).fill(i)));
   const counts = ctx.pieceIds.map(() => 0);
   const tree = JSON.parse(JSON.stringify(pattern.tree)) as SheetPattern['tree'];
+  const nodes: Array<Extract<SheetPattern['tree'], { type: 'piece' }>> = [];
   walk(tree, (n) => {
-    if (n.type !== 'piece') return;
-    const i = queues[Number(n.pieceId)]!.shift()!;
-    n.pieceId = ctx.pieceIds[i]!;
-    counts[i] = (counts[i] ?? 0) + 1;
+    if (n.type === 'piece') nodes.push(n);
+  });
+  run.slots.forEach((cls, c) => {
+    const mine = nodes.filter((n) => Number(n.pieceId) === c);
+    // Pieces turned the other way form their own block.
+    const slots = [...snakeOrder(mine.filter((n) => !n.rotated)), ...snakeOrder(mine.filter((n) => n.rotated))];
+    const line = Math.max(1, Math.min(new Set(mine.map((n) => n.x)).size, new Set(mine.map((n) => n.y)).size));
+    const queue = [...cls]
+      .sort((a, b) => Number(a[1] % line !== 0) - Number(b[1] % line !== 0) || b[1] - a[1] || a[0] - b[0])
+      .flatMap(([i, n]) => new Array<number>(n).fill(i));
+    slots.forEach((n) => {
+      const i = queue.shift()!;
+      n.pieceId = ctx.pieceIds[i]!;
+      counts[i] = (counts[i] ?? 0) + 1;
+    });
   });
   return { ...pattern, tree, counts };
 }
@@ -813,8 +901,12 @@ function worthwhileLayouts(states: Map<number, OuterState>, ctx: Ctx, maxPlans =
     if (!last || finalScore(ctx, s) < finalScore(ctx, last[1]) * (1 - GANG_MIN_SAVING)) kept.push([k, s]);
   }
   if (kept.length <= maxPlans) return new Map(kept);
-  // The fewest layouts, the least paper, and the middle one between them.
-  return new Map([kept[0]!, kept[Math.floor(kept.length / 2)]!, kept[kept.length - 1]!]);
+  // Every layout costs a plate and a setup, so the end of the list is rarely worth it: the fewest layouts, the fewest
+  // with little excess, and the least paper.
+  const demand = ctx.initialRem.reduce((a, r) => a + r, 0);
+  const excess = (s: OuterState): number => s.groups.reduce((a, g) => a + g.copies * g.pattern.counts.reduce((x, c) => x + c, 0), 0) - demand;
+  const lean = kept.find(([, s]) => excess(s) <= demand * GANG_MAX_EXCESS) ?? kept[Math.floor(kept.length / 2)]!;
+  return new Map([kept[0]!, lean, kept[kept.length - 1]!]);
 }
 
 /** Finishes a plan the search ran out of time on: one quick pattern after another, while stock lasts. */
@@ -1043,6 +1135,11 @@ export function optimize(input: OptimizationInput, options: OptimizeOptions = {}
   if (ranked.length === 0) addPlan(fulfilledFirst[0], 'balanced');
   addPlan([...fulfilledFirst].sort((x, y) => cheapKey(x) - cheapKey(y) || x.objective.score - y.objective.score)[0], 'cheapest');
   addPlan(fulfilledFirst[0], 'balanced');
+  // Recommended: the fewest layouts that do not make much more than was ordered.
+  const ordered = ctx.initialRem.reduce((a, r) => a + r, 0);
+  const excessOf = (p: Plan): number => Object.values(p.overproduced ?? {}).reduce((a, n) => a + n, 0);
+  const lean = ranked.filter((p) => p.fulfilled && excessOf(p) <= ordered * GANG_MAX_EXCESS).sort((a, b) => a.sheets.length - b.sheets.length)[0];
+  if (lean) ranked.unshift(...ranked.splice(ranked.indexOf(lean), 1));
   const plans = ranked.map((plan, i) => ({ ...plan, id: `plan-${i + 1}`, label: plan.objective.profile }));
 
   // A plan with no sheets (nothing placeable) is still reported so the UI can show the issues.

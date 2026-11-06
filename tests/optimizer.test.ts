@@ -474,6 +474,28 @@ describe('gang runs: many products of the same size', () => {
     expect(Math.min(...plans.map((p) => p.totals.stockArea))).toBeLessThan(fewest.totals.stockArea);
   });
 
+  it('keeps up with a plan worked out by hand: 4 layouts, 10383 sheets on 41x57', () => {
+    const hand = input(pieces, [stock('41x57', 570, 410, 100000)], { kerf: 0, edgeMargin: 0, bladeLength: 920, maxRuntimeMs: 8000 });
+    const { plans } = optimize(hand);
+    const few = plans.filter((p) => p.sheets.length <= 4);
+    expect(few.length).toBeGreaterThan(0);
+    expect(Math.min(...few.map((p) => p.totals.sheetCount))).toBeLessThanOrEqual(10383);
+    for (const plan of plans) expect(validatePlan(plan, hand)).toEqual([]);
+  });
+
+  it('keeps the slots of a product next to each other', () => {
+    const grid = input([piece('a', 100, 100, 200), piece('b', 100, 100, 200), piece('c', 100, 100, 100), piece('d', 100, 100, 100)], [stock('s', 200, 300, 1000)], { kerf: 0, edgeMargin: 0 });
+    const plan = optimize(grid).plans[0]!;
+    expect(plan.sheets).toHaveLength(1);
+    const placed = collectPieces(plan.sheets[0]!.tree);
+    for (const id of ['a', 'b']) {
+      const mine = placed.filter((p) => p.pieceId === id);
+      expect(mine).toHaveLength(2);
+      const apart = Math.abs(mine[0]!.x - mine[1]!.x) + Math.abs(mine[0]!.y - mine[1]!.y);
+      expect(apart).toBe(100);
+    }
+  });
+
   it('puts all products on one layout when they fit on one sheet', () => {
     const small = input([piece('a', 100, 100, 500), piece('b', 100, 100, 500), piece('c', 100, 100, 1000)], [stock('s', 410, 410, 1000)], { kerf: 0, edgeMargin: 0 });
     const plan = optimize(small).plans[0]!;
