@@ -79,26 +79,7 @@ describe('layout PDF', () => {
 });
 
 describe('layout PDF captions', () => {
-  it('prints the caption above the layout on A4, and never on the 1:1 template page', async () => {
-    const font = new Uint8Array(readFileSync(join(process.cwd(), 'node_modules/pdfjs-dist/standard_fonts/LiberationSans-Regular.ttf')));
-    const caption = ['Kalıp 1 · Test · 3 tabaka', 'Ürün: 2 adet/tabaka'];
-    const a4 = await buildLayoutPdf({ title: 'Sipariş', sheets: plan.sheets.map((sheet) => ({ sheet, sideways: false, caption })), paper: 'a4', artworks: new Map(), cutLines: true, font });
-    const doc = await pdfjs.getDocument({ data: a4 }).promise;
-    const text = (await (await doc.getPage(1)).getTextContent()).items.map((i) => ('str' in i ? i.str : '')).join('');
-    expect(text).toContain('Kalıp');
-    expect(text).toContain('tabaka');
-
-    // The 1:1 template: exactly the sheet size, and no caption text on it.
-    const template = await buildLayoutPdf({ title: 'Sipariş', sheets: plan.sheets.map((sheet) => ({ sheet, sideways: false, caption })), paper: 'sheet', artworks: new Map(), cutLines: true, font });
-    const tdoc = await pdfjs.getDocument({ data: template }).promise;
-    const tpage = await tdoc.getPage(1);
-    const [, , w, h] = tpage.view;
-    expect([Math.round((w! * 25.4) / 72), Math.round((h! * 25.4) / 72)]).toEqual([841, 1189]);
-    const ttext = (await tpage.getTextContent()).items.map((i) => ('str' in i ? i.str : '')).join('');
-    expect(ttext).toBe('');
-  });
-
-  it('prints no caption when none is given, even with a font', async () => {
+  it('prints no text when no summary or labels are given, even with a font', async () => {
     const font = new Uint8Array(readFileSync(join(process.cwd(), 'node_modules/pdfjs-dist/standard_fonts/LiberationSans-Regular.ttf')));
     const bytes = await buildLayoutPdf({ title: 'Sipariş', sheets: plan.sheets.map((sheet) => ({ sheet, sideways: false })), paper: 'a4', artworks: new Map(), cutLines: true, font });
     const doc = await pdfjs.getDocument({ data: bytes }).promise;

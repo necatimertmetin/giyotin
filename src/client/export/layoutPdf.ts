@@ -17,15 +17,14 @@ export interface LayoutPdfInput {
   title: string;
   /**
    * `sideways`: drawn turned by 90° clockwise, as the viewer shows tall sheets.
-   * `caption`: text lines printed in a band above the layout (product names, sheet count); none when absent.
    */
-  sheets: Array<{ sheet: SheetPlan; sideways: boolean; caption?: string[]; styles?: Map<string, PieceStyle> }>;
+  sheets: Array<{ sheet: SheetPlan; sideways: boolean; styles?: Map<string, PieceStyle> }>;
   paper: PdfPaper;
   /** Product artwork by piece id, in the product's declared width × height. */
   artworks: Map<string, PdfArtwork>;
   /** Draw the cut lines (off: only the artwork, e.g. for printing the sheet itself). */
   cutLines: boolean;
-  /** TrueType font with the Turkish letters, for the captions and the summary. Needed only when one of them is printed. */
+  /** TrueType font with the Turkish letters, for the summary and the piece texts. Needed only when one of them is printed. */
   font?: Uint8Array;
   /** A summary page printed first, before the layouts (A4 portrait). */
   summary?: SummaryPage;
@@ -60,10 +59,8 @@ const PT = 72 / 25.4;
 const A4 = { w: 210, h: 297 };
 const BLACK = rgb(0, 0, 0);
 const SHADE = rgb(0.9, 0.9, 0.9);
-/** Caption band above a layout: margin, line pitch and font size, mm / pt. */
-const CAPTION_PAD = 4;
-const CAPTION_LINE = 4.6;
-const CAPTION_PT = 9;
+/** Piece texts: the largest font size, pt. */
+const TEXT_PT = 9;
 /** Summary page: margin, table row height (mm) and font sizes (pt). */
 const SUMMARY_MARGIN = 10;
 const SUMMARY_ROW = 5.8;
@@ -135,7 +132,7 @@ export async function buildLayoutPdf(input: LayoutPdfInput): Promise<Uint8Array>
   doc.setCreator('Giyotin Kesim Planlayıcı');
   const embedded = new Map<string, Drawable>();
   let font: PDFFont | null = null;
-  if (input.font && (input.summary || input.sheets.some((s) => s.caption?.length || [...(s.styles?.values() ?? [])].some((st) => st.lines.length)))) {
+  if (input.font && (input.summary || input.sheets.some((s) => [...(s.styles?.values() ?? [])].some((st) => st.lines.length)))) {
     doc.registerFontkit(fontkit);
     font = await doc.embedFont(input.font, { subset: true });
   }
@@ -149,30 +146,25 @@ export async function buildLayoutPdf(input: LayoutPdfInput): Promise<Uint8Array>
   }
   if (input.summary && font) drawSummary(doc, input.summary, font);
 
-  for (const { sheet, sideways, caption, styles } of input.sheets) {
+  for (const { sheet, sideways, styles } of input.sheets) {
     const opts: DrawOpts = { cutLines: input.cutLines, styles: styles ?? new Map(), font };
     // Size of the sheet as drawn on the page.
     const dw = sideways ? sheet.height : sheet.width;
     const dh = sideways ? sheet.width : sheet.height;
     if (input.paper === 'sheet') {
       // 1:1 is the cutting template itself: the page is exactly the sheet, in the corner, with nothing else on it.
-      // Captions are left out here (the summary page carries the same counts).
       const page = doc.addPage([dw * PT, dh * PT]);
       drawSheet(page, sheet, { x: 0, y: 0, scale: 1, sideways }, embedded, opts);
       continue;
     }
-    // A4: the caption band sits above the layout, and the sheet is scaled to fit below it.
-    const lines = font && caption?.length ? caption : [];
-    const band = lines.length > 0 ? CAPTION_PAD * 2 + lines.length * CAPTION_LINE : 0;
     const landscape = dw >= dh;
     const pw = landscape ? A4.h : A4.w;
     const ph = landscape ? A4.w : A4.h;
-    // Edge to edge below the caption band: the sheet touches the free area on its tighter side.
-    const scale = Math.min(pw / dw, (ph - band) / dh);
-    const frame = { x: (pw - dw * scale) / 2, y: band + (ph - band - dh * scale) / 2, scale, sideways };
+    // Edge to edge: the sheet touches the page on its tighter side.
+    const scale = Math.min(pw / dw, ph / dh);
+    const frame = { x: (pw - dw * scale) / 2, y: (ph - dh * scale) / 2, scale, sideways };
     const page = doc.addPage([pw * PT, ph * PT]);
     drawSheet(page, sheet, frame, embedded, opts);
-    drawCaption(page, lines, font);
   }
   await doc.flush();
   dropUnused(doc);
@@ -199,23 +191,6 @@ function dropUnused(doc: PDFDocument): void {
   visit(ctx.trailerInfo.Root);
   visit(ctx.trailerInfo.Info);
   for (const [ref] of ctx.enumerateIndirectObjects()) if (!seen.has(ref.tag)) ctx.delete(ref);
-}
-
-/** Caption lines at the top of the page, each cut short with an ellipsis if it would run past the right edge. */
-function drawCaption(page: PDFPage, lines: string[], font: PDFFont | null): void {
-  if (!font || lines.length === 0) return;
-  const H = page.getHeight();
-  const maxWidth = page.getWidth() - 2 * CAPTION_PAD * PT;
-  lines.forEach((text, i) => {
-    let t = text;
-    if (font.widthOfTextAtSize(t, CAPTION_PT) > maxWidth) {
-      while (t.length > 1 && font.widthOfTextAtSize(`${t}…`, CAPTION_PT) > maxWidth) t = t.slice(0, -1);
-      t = `${t}…`;
-    }
-    // Baseline of line i: the top margin, the line pitch, and most of a line's height down to the baseline.
-    const baseline = CAPTION_PAD + CAPTION_LINE * i + CAPTION_LINE * 0.75;
-    page.drawText(t, { x: CAPTION_PAD * PT, y: H - baseline * PT, size: CAPTION_PT, font, color: BLACK });
-  });
 }
 
 interface Frame {
@@ -347,7 +322,7 @@ function hatchRect(page: PDFPage, l: number, b: number, r: number, t: number, ki
 function labelRect(page: PDFPage, font: PDFFont, lines: string[], l: number, b: number, r: number, t: number): void {
   const w = r - l;
   const h = t - b;
-  const size = Math.min(CAPTION_PT, Math.max(4, (Math.min(w, h) / PT) / 6));
+  const size = Math.min(TEXT_PT, Math.max(4, (Math.min(w, h) / PT) / 6));
   const pitch = size * 1.25;
   const blockH = lines.length * pitch + 4;
   // Too small for any text: the piece is left bare.

@@ -38,20 +38,11 @@ async function toPng(dataUrl: string): Promise<PdfImage> {
   return { bytes: new Uint8Array(await blob.arrayBuffer()), type: 'png' };
 }
 
-/** Which texts are printed above each layout. */
-export interface CaptionOptions {
-  /** Product names with how many of each are on the layout, and the total over all sheets of that layout. */
-  products: boolean;
-  /** How many identical sheets (tabaka) the layout is cut into. */
-  copies: boolean;
-}
-
 /** What the PDF carries besides the layouts. */
 export interface PdfOptions {
-  captions: CaptionOptions;
   /** A summary page (ordered, cut and excess per product, layouts, totals) printed first. */
   summary: boolean;
-  /** Written on each piece of the layouts: name, code and size, and the count on that layout. Off by default. */
+  /** Written in the middle of each piece of the layouts: the product name and how many are cut from it. Off by default. */
   pieceLabels: boolean;
   /** Each product gets its own hatch pattern on the pieces without artwork. Off by default. */
   hatch: boolean;
@@ -71,25 +62,10 @@ function stylesOf(props: Props, sheet: Plan['sheets'][number], opts: PdfOptions)
     const hatch = opts.hatch ? HATCHES[index % HATCHES.length]! : null;
     index++;
     if (n === 0) continue;
-    const lines = opts.pieceLabels ? [`${info.code} · ${info.name}`, `${info.width} × ${info.height} mm`, `${n} adet bu kalıpta`] : [];
+    const lines = opts.pieceLabels ? [info.name, sheet.copies > 1 ? `${n} adet × ${sheet.copies} tabaka = ${n * sheet.copies}` : `${n} adet`] : [];
     styles.set(id, { lines, hatch });
   }
   return styles;
-}
-
-/** Caption lines of one layout, in Turkish; empty when nothing is selected. */
-function captionOf(props: Props, sheetNo: number, sheet: Plan['sheets'][number], opts: CaptionOptions): string[] {
-  const lines: string[] = [];
-  if (opts.copies) lines.push(`Kalıp ${sheetNo} · ${sheet.stockName} · ${sheet.copies} tabaka`);
-  if (opts.products) {
-    const counts = new Map<string, number>();
-    for (const p of collectPieces(sheet.tree)) counts.set(p.pieceId, (counts.get(p.pieceId) ?? 0) + 1);
-    for (const [id, n] of counts) {
-      const name = props.pieces.get(id)?.name ?? id;
-      lines.push(sheet.copies > 1 ? `${name}: ${n} adet/tabaka, ${sheet.copies} tabakada toplam ${n * sheet.copies} adet` : `${name}: ${n} adet`);
-    }
-  }
-  return lines;
 }
 
 /** Turkish letters need an embedded font; the same file the browser loads for the page itself. */
@@ -135,8 +111,7 @@ function summaryOf(props: Props): SummaryPage {
 /** The PDF, and the names of products printed from their preview image because no vector original was found. */
 async function makePdf(props: Props, paper: PdfPaper, all: boolean, cutLines: boolean, opts: PdfOptions): Promise<{ blob: Blob; raster: string[] }> {
   const { buildLayoutPdf } = await import('../export/layoutPdf');
-  const { captions, summary } = opts;
-  const wantsCaption = captions.products || captions.copies;
+  const { summary } = opts;
   const artworks = new Map<string, PdfArtwork>();
   const raster: string[] = [];
   for (const [id, info] of props.pieces) {
@@ -153,11 +128,10 @@ async function makePdf(props: Props, paper: PdfPaper, all: boolean, cutLines: bo
     .map((sheet, i) => ({
       sheet,
       sideways: props.sidewaysOf(i),
-      caption: wantsCaption ? captionOf(props, i + 1, sheet, captions) : undefined,
       styles: opts.pieceLabels || opts.hatch ? stylesOf(props, sheet, opts) : undefined,
     }))
     .filter((_, i) => all || i === props.sheetIndex);
-  const font = wantsCaption || summary || opts.pieceLabels ? await loadCaptionFont() : undefined;
+  const font = summary || opts.pieceLabels ? await loadCaptionFont() : undefined;
   const bytes = await buildLayoutPdf({ title: props.title, sheets, paper, artworks, cutLines, font, summary: summary ? summaryOf(props) : undefined });
   return { blob: new Blob([bytes as BlobPart], { type: 'application/pdf' }), raster };
 }
@@ -189,7 +163,6 @@ export function PdfExportDialog(props: Props): ReactElement {
   const [paper, setPaper] = useState<PdfPaper>('a4');
   const [all, setAll] = useState(true);
   const [cutLines, setCutLines] = useState(true);
-  const [captions, setCaptions] = useState<CaptionOptions>({ products: true, copies: true });
   const [summary, setSummary] = useState(true);
   const [pieceLabels, setPieceLabels] = useState(false);
   const [hatch, setHatch] = useState(false);
@@ -200,7 +173,7 @@ export function PdfExportDialog(props: Props): ReactElement {
   const run = async (action: 'download' | 'print'): Promise<void> => {
     setBusy(action);
     try {
-      const { blob, raster } = await makePdf(props, paper, many && all, cutLines, { captions, summary, pieceLabels, hatch });
+      const { blob, raster } = await makePdf(props, paper, many && all, cutLines, { summary, pieceLabels, hatch });
       if (raster.length > 0) toast(`Önizleme görseliyle basıldı (vektörel değil): ${raster.join(', ')}. Vektörel baskı, bu tarayıcıda eklenmiş PDF/AI dosyalarında olur.`, 'info');
       if (action === 'print') printBlob(blob);
       else {
@@ -246,20 +219,12 @@ export function PdfExportDialog(props: Props): ReactElement {
             <Typography variant="subtitle2">PDF'e eklenenler</Typography>
             <FormGroup>
               <FormControlLabel
-                control={<Checkbox checked={captions.products} onChange={(e) => setCaptions({ ...captions, products: e.target.checked })} data-testid="pdf-caption-products" />}
-                label="Ürün adları ve adetleri"
-              />
-              <FormControlLabel
-                control={<Checkbox checked={captions.copies} onChange={(e) => setCaptions({ ...captions, copies: e.target.checked })} data-testid="pdf-caption-copies" />}
-                label="Kaç tabaka kesileceği"
-              />
-              <FormControlLabel
                 control={<Checkbox checked={summary} onChange={(e) => setSummary(e.target.checked)} data-testid="pdf-summary" />}
                 label="Başa özet sayfası (ürün istenen/kesilen/fazla/eksik, kalıp tablosu, toplam)"
               />
               <FormControlLabel
                 control={<Checkbox checked={pieceLabels} onChange={(e) => setPieceLabels(e.target.checked)} data-testid="pdf-piece-labels" />}
-                label="Parçaların üstüne kod, ürün adı, ölçü ve adet yaz"
+                label="Parçaların ortasına ürün adı ve kaç adet basılacağı"
               />
               <FormControlLabel
                 control={<Checkbox checked={hatch} onChange={(e) => setHatch(e.target.checked)} data-testid="pdf-hatch" />}
