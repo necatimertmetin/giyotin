@@ -1,9 +1,9 @@
-import { Alert, Button, CircularProgress, Dialog, DialogActions, DialogContent, DialogTitle, FormControlLabel, Radio, RadioGroup, Stack, Typography } from '@mui/material';
+import { Alert, Button, Checkbox, CircularProgress, Dialog, DialogActions, DialogContent, DialogTitle, FormControlLabel, FormGroup, Radio, RadioGroup, Stack, Typography } from '@mui/material';
 import DownloadIcon from '@mui/icons-material/FileDownloadOutlined';
 import PrintIcon from '@mui/icons-material/PrintOutlined';
 import { useState, type ReactElement } from 'react';
-import type { Plan } from '../../engine';
-import type { PdfArtwork, PdfImage, PdfPaper } from '../export/layoutPdf';
+import { collectPieces, cutSteps, type Plan } from '../../engine';
+import type { PdfArtwork, PdfImage, PdfPaper, SummaryPage } from '../export/layoutPdf';
 import { getArtworkSource } from '../import/artworkSources';
 import type { PieceInfo } from './viewerTypes';
 import { fmtNum } from '../format';
@@ -38,9 +38,81 @@ async function toPng(dataUrl: string): Promise<PdfImage> {
   return { bytes: new Uint8Array(await blob.arrayBuffer()), type: 'png' };
 }
 
+/** Which texts are printed above each layout. */
+export interface CaptionOptions {
+  /** Product names with how many of each are on the layout, and the total over all sheets of that layout. */
+  products: boolean;
+  /** How many identical sheets (tabaka) the layout is cut into. */
+  copies: boolean;
+}
+
+/** What the PDF carries besides the layouts. */
+export interface PdfOptions {
+  captions: CaptionOptions;
+  /** A summary page (ordered, cut and excess per product, layouts, totals) printed first. */
+  summary: boolean;
+}
+
+/** Caption lines of one layout, in Turkish; empty when nothing is selected. */
+function captionOf(props: Props, sheetNo: number, sheet: Plan['sheets'][number], opts: CaptionOptions): string[] {
+  const lines: string[] = [];
+  if (opts.copies) lines.push(`Kalıp ${sheetNo} · ${sheet.stockName} · ${sheet.copies} tabaka`);
+  if (opts.products) {
+    const counts = new Map<string, number>();
+    for (const p of collectPieces(sheet.tree)) counts.set(p.pieceId, (counts.get(p.pieceId) ?? 0) + 1);
+    for (const [id, n] of counts) {
+      const name = props.pieces.get(id)?.name ?? id;
+      lines.push(sheet.copies > 1 ? `${name}: ${n} adet/tabaka, ${sheet.copies} tabakada toplam ${n * sheet.copies} adet` : `${name}: ${n} adet`);
+    }
+  }
+  return lines;
+}
+
+/** Turkish letters need an embedded font; the same file the browser loads for the page itself. */
+async function loadCaptionFont(): Promise<Uint8Array> {
+  const res = await fetch(`${import.meta.env.BASE_URL}fonts/LiberationSans-Regular.ttf`);
+  if (!res.ok) throw new Error('yazı tipi yüklenemedi');
+  return new Uint8Array(await res.arrayBuffer());
+}
+
+const num = (n: number): string => n.toLocaleString('tr-TR');
+
+/**
+ * The summary page for the whole plan: per product how many were ordered, cut and over or short, then per layout
+ * its stock, sheet count and pieces, and the totals. Excess is the planner's overproduction where it reports one.
+ */
+function summaryOf(props: Props): SummaryPage {
+  const { plan } = props;
+  const productRows: string[][] = [];
+  for (const [id, info] of props.pieces) {
+    const placed = plan.placed[id] ?? 0;
+    const over = plan.overproduced?.[id] ?? Math.max(0, placed - info.quantity);
+    const short = Math.max(0, info.quantity - placed);
+    productRows.push([info.name, num(info.quantity), num(placed), over > 0 ? num(over) : '–', short > 0 ? num(short) : '–']);
+  }
+  const layoutRows = plan.sheets.map((sheet, i) => {
+    const pieces = collectPieces(sheet.tree).length;
+    return [String(i + 1), sheet.stockName, num(sheet.copies), num(sheet.stats.cuts), num(pieces), num(pieces * sheet.copies)];
+  });
+  const notes = [
+    `Toplam: ${num(plan.totals.sheetCount)} tabaka, ${num(cutSteps(plan))} kesim adımı, kağıt kullanımı %${fmtNum(plan.totals.utilization * 100)}.`,
+    ...(plan.fulfilled ? [] : ['Bu planda istenen adetler tam tamamlanamadı; eksikler yukarıda.']),
+  ];
+  return {
+    title: `${props.title} — kalıp özeti${plan.label ? ` (${plan.label})` : ''}`,
+    tables: [
+      { widths: [88, 25, 25, 25, 27], header: ['Ürün', 'İstenen', 'Kesilen', 'Fazla', 'Eksik'], rows: productRows },
+      { widths: [14, 62, 24, 26, 30, 34], header: ['Kalıp', 'Stok', 'Tabaka', 'Kesim', 'Parça/tabaka', 'Toplam parça'], rows: layoutRows },
+    ],
+    notes,
+  };
+}
+
 /** The PDF, and the names of products printed from their preview image because no vector original was found. */
-async function makePdf(props: Props, paper: PdfPaper, all: boolean, cutLines: boolean): Promise<{ blob: Blob; raster: string[] }> {
+async function makePdf(props: Props, paper: PdfPaper, all: boolean, cutLines: boolean, opts: PdfOptions): Promise<{ blob: Blob; raster: string[] }> {
   const { buildLayoutPdf } = await import('../export/layoutPdf');
+  const { captions, summary } = opts;
+  const wantsCaption = captions.products || captions.copies;
   const artworks = new Map<string, PdfArtwork>();
   const raster: string[] = [];
   for (const [id, info] of props.pieces) {
@@ -53,8 +125,11 @@ async function makePdf(props: Props, paper: PdfPaper, all: boolean, cutLines: bo
       raster.push(info.name);
     }
   }
-  const sheets = props.plan.sheets.map((sheet, i) => ({ sheet, sideways: props.sidewaysOf(i) })).filter((_, i) => all || i === props.sheetIndex);
-  const bytes = await buildLayoutPdf({ title: props.title, sheets, paper, artworks, cutLines });
+  const sheets = props.plan.sheets
+    .map((sheet, i) => ({ sheet, sideways: props.sidewaysOf(i), caption: wantsCaption ? captionOf(props, i + 1, sheet, captions) : undefined }))
+    .filter((_, i) => all || i === props.sheetIndex);
+  const font = wantsCaption || summary ? await loadCaptionFont() : undefined;
+  const bytes = await buildLayoutPdf({ title: props.title, sheets, paper, artworks, cutLines, font, summary: summary ? summaryOf(props) : undefined });
   return { blob: new Blob([bytes as BlobPart], { type: 'application/pdf' }), raster };
 }
 
@@ -85,6 +160,8 @@ export function PdfExportDialog(props: Props): ReactElement {
   const [paper, setPaper] = useState<PdfPaper>('a4');
   const [all, setAll] = useState(true);
   const [cutLines, setCutLines] = useState(true);
+  const [captions, setCaptions] = useState<CaptionOptions>({ products: true, copies: true });
+  const [summary, setSummary] = useState(true);
   const [busy, setBusy] = useState<'download' | 'print' | null>(null);
   const many = plan.sheets.length > 1;
   const sheet = plan.sheets[sheetIndex] ?? plan.sheets[0];
@@ -92,7 +169,7 @@ export function PdfExportDialog(props: Props): ReactElement {
   const run = async (action: 'download' | 'print'): Promise<void> => {
     setBusy(action);
     try {
-      const { blob, raster } = await makePdf(props, paper, many && all, cutLines);
+      const { blob, raster } = await makePdf(props, paper, many && all, cutLines, { captions, summary });
       if (raster.length > 0) toast(`Önizleme görseliyle basıldı (vektörel değil): ${raster.join(', ')}. Vektörel baskı, bu tarayıcıda eklenmiş PDF/AI dosyalarında olur.`, 'info');
       if (action === 'print') printBlob(blob);
       else {
@@ -133,6 +210,23 @@ export function PdfExportDialog(props: Props): ReactElement {
               <FormControlLabel value="on" control={<Radio />} label="Olsun" data-testid="pdf-lines-on" />
               <FormControlLabel value="off" control={<Radio />} label="Olmasın" data-testid="pdf-lines-off" />
             </RadioGroup>
+          </div>
+          <div>
+            <Typography variant="subtitle2">PDF'e eklenenler</Typography>
+            <FormGroup>
+              <FormControlLabel
+                control={<Checkbox checked={captions.products} onChange={(e) => setCaptions({ ...captions, products: e.target.checked })} data-testid="pdf-caption-products" />}
+                label="Ürün adları ve adetleri"
+              />
+              <FormControlLabel
+                control={<Checkbox checked={captions.copies} onChange={(e) => setCaptions({ ...captions, copies: e.target.checked })} data-testid="pdf-caption-copies" />}
+                label="Kaç tabaka kesileceği"
+              />
+              <FormControlLabel
+                control={<Checkbox checked={summary} onChange={(e) => setSummary(e.target.checked)} data-testid="pdf-summary" />}
+                label="Başa özet sayfası (ürün istenen/kesilen/fazla/eksik, kalıp tablosu, toplam)"
+              />
+            </FormGroup>
           </div>
           {many && (
             <div>

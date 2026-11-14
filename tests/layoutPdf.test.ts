@@ -1,4 +1,6 @@
 import { describe, expect, it } from 'vitest';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import * as pdfjs from 'pdfjs-dist/legacy/build/pdf.mjs';
 import { PDFDocument, rgb } from 'pdf-lib';
 import { collectPieces } from '../src/engine';
@@ -73,5 +75,62 @@ describe('layout PDF', () => {
     expect(without.forms).toBe(artworkPieces);
     // Only the artwork's own rectangle is drawn as a path, once per piece.
     expect(without.strokes).toBeLessThan(withLines.strokes);
+  });
+});
+
+describe('layout PDF captions', () => {
+  it('prints the caption above the layout, with the Turkish letters, and grows the page in 1:1 mode', async () => {
+    const font = new Uint8Array(readFileSync(join(process.cwd(), 'node_modules/pdfjs-dist/standard_fonts/LiberationSans-Regular.ttf')));
+    const caption = ['Kalıp 1 · Test · 3 tabaka', 'Ürün: 2 adet/tabaka'];
+    const bytes = await buildLayoutPdf({
+      title: 'Sipariş',
+      sheets: plan.sheets.map((sheet) => ({ sheet, sideways: false, caption })),
+      paper: 'sheet',
+      artworks: new Map(),
+      cutLines: true,
+      font,
+    });
+    const doc = await pdfjs.getDocument({ data: bytes }).promise;
+    const page = await doc.getPage(1);
+    const [, , w, h] = page.view;
+    expect([Math.round((w! * 25.4) / 72), Math.round((h! * 25.4) / 72)]).toEqual([841, Math.round(1189 + 4 * 2 + 2 * 4.6)]);
+    const text = (await page.getTextContent()).items.map((i) => ('str' in i ? i.str : '')).join('');
+    expect(text).toContain('Kalıp');
+    expect(text).toContain('tabaka');
+  });
+
+  it('prints no caption when none is given, even with a font', async () => {
+    const font = new Uint8Array(readFileSync(join(process.cwd(), 'node_modules/pdfjs-dist/standard_fonts/LiberationSans-Regular.ttf')));
+    const bytes = await buildLayoutPdf({ title: 'Sipariş', sheets: plan.sheets.map((sheet) => ({ sheet, sideways: false })), paper: 'a4', artworks: new Map(), cutLines: true, font });
+    const doc = await pdfjs.getDocument({ data: bytes }).promise;
+    const text = (await (await doc.getPage(1)).getTextContent()).items.map((i) => ('str' in i ? i.str : '')).join('');
+    expect(text).toBe('');
+  });
+});
+
+describe('layout PDF summary', () => {
+  it('prints the summary as the first A4 page, with the tables and notes', async () => {
+    const font = new Uint8Array(readFileSync(join(process.cwd(), 'node_modules/pdfjs-dist/standard_fonts/LiberationSans-Regular.ttf')));
+    const bytes = await buildLayoutPdf({
+      title: 'Sipariş',
+      sheets: plan.sheets.map((sheet) => ({ sheet, sideways: false })),
+      paper: 'a4',
+      artworks: new Map(),
+      cutLines: true,
+      font,
+      summary: {
+        title: 'Özet',
+        tables: [{ widths: [100, 45, 45], header: ['Ürün', 'İstenen', 'Kesilen'], rows: [['Kartvizit ğş', '6', '8']] }],
+        notes: ['Toplam: 3 tabaka.'],
+      },
+    });
+    const doc = await pdfjs.getDocument({ data: bytes }).promise;
+    expect(doc.numPages).toBe(plan.sheets.length + 1);
+    const first = await doc.getPage(1);
+    expect([Math.round((first.view[2]! * 25.4) / 72), Math.round((first.view[3]! * 25.4) / 72)]).toEqual([210, 297]);
+    const text = (await first.getTextContent()).items.map((i) => ('str' in i ? i.str : '')).join('');
+    expect(text).toContain('Özet');
+    expect(text).toContain('Kesilen');
+    expect(text).toContain('Toplam');
   });
 });
