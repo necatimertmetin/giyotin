@@ -154,15 +154,16 @@ export async function buildLayoutPdf(input: LayoutPdfInput): Promise<Uint8Array>
     // Size of the sheet as drawn on the page.
     const dw = sideways ? sheet.height : sheet.width;
     const dh = sideways ? sheet.width : sheet.height;
-    // The caption band is above the layout; the sheet itself keeps its real size in 1:1 mode.
-    const lines = font && caption?.length ? caption : [];
-    const band = lines.length > 0 ? CAPTION_PAD * 2 + lines.length * CAPTION_LINE : 0;
     if (input.paper === 'sheet') {
-      const page = doc.addPage([dw * PT, (dh + band) * PT]);
-      drawSheet(page, sheet, { x: 0, y: band, scale: 1, sideways }, embedded, opts);
-      drawCaption(page, lines, font);
+      // 1:1 is the cutting template itself: the page is exactly the sheet, in the corner, with nothing else on it.
+      // Captions are left out here (the summary page carries the same counts).
+      const page = doc.addPage([dw * PT, dh * PT]);
+      drawSheet(page, sheet, { x: 0, y: 0, scale: 1, sideways }, embedded, opts);
       continue;
     }
+    // A4: the caption band sits above the layout, and the sheet is scaled to fit below it.
+    const lines = font && caption?.length ? caption : [];
+    const band = lines.length > 0 ? CAPTION_PAD * 2 + lines.length * CAPTION_LINE : 0;
     const landscape = dw >= dh;
     const pw = landscape ? A4.h : A4.w;
     const ph = landscape ? A4.w : A4.h;
