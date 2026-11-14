@@ -3,7 +3,7 @@ import DownloadIcon from '@mui/icons-material/FileDownloadOutlined';
 import PrintIcon from '@mui/icons-material/PrintOutlined';
 import { useState, type ReactElement } from 'react';
 import { collectPieces, cutSteps, type Plan } from '../../engine';
-import type { PdfArtwork, PdfImage, PdfPaper, SummaryPage } from '../export/layoutPdf';
+import type { Hatch, PdfArtwork, PdfImage, PdfPaper, PieceStyle, SummaryPage } from '../export/layoutPdf';
 import { getArtworkSource } from '../import/artworkSources';
 import type { PieceInfo } from './viewerTypes';
 import { fmtNum } from '../format';
@@ -51,6 +51,30 @@ export interface PdfOptions {
   captions: CaptionOptions;
   /** A summary page (ordered, cut and excess per product, layouts, totals) printed first. */
   summary: boolean;
+  /** Written on each piece of the layouts: name, code and size, and the count on that layout. Off by default. */
+  pieceLabels: boolean;
+  /** Each product gets its own hatch pattern on the pieces without artwork. Off by default. */
+  hatch: boolean;
+}
+
+/** Hatch patterns in the order products get them; a product keeps its pattern on every layout. */
+const HATCHES: Hatch[] = ['diag', 'anti', 'horiz', 'vert', 'cross', 'dots'];
+
+/** Per piece of one layout: its text lines and hatch pattern, as the options ask. */
+function stylesOf(props: Props, sheet: Plan['sheets'][number], opts: PdfOptions): Map<string, PieceStyle> {
+  const counts = new Map<string, number>();
+  for (const p of collectPieces(sheet.tree)) counts.set(p.pieceId, (counts.get(p.pieceId) ?? 0) + 1);
+  const styles = new Map<string, PieceStyle>();
+  let index = 0;
+  for (const [id, info] of props.pieces) {
+    const n = counts.get(id) ?? 0;
+    const hatch = opts.hatch ? HATCHES[index % HATCHES.length]! : null;
+    index++;
+    if (n === 0) continue;
+    const lines = opts.pieceLabels ? [`${info.code} · ${info.name}`, `${info.width} × ${info.height} mm`, `${n} adet bu kalıpta`] : [];
+    styles.set(id, { lines, hatch });
+  }
+  return styles;
 }
 
 /** Caption lines of one layout, in Turkish; empty when nothing is selected. */
@@ -126,9 +150,14 @@ async function makePdf(props: Props, paper: PdfPaper, all: boolean, cutLines: bo
     }
   }
   const sheets = props.plan.sheets
-    .map((sheet, i) => ({ sheet, sideways: props.sidewaysOf(i), caption: wantsCaption ? captionOf(props, i + 1, sheet, captions) : undefined }))
+    .map((sheet, i) => ({
+      sheet,
+      sideways: props.sidewaysOf(i),
+      caption: wantsCaption ? captionOf(props, i + 1, sheet, captions) : undefined,
+      styles: opts.pieceLabels || opts.hatch ? stylesOf(props, sheet, opts) : undefined,
+    }))
     .filter((_, i) => all || i === props.sheetIndex);
-  const font = wantsCaption || summary ? await loadCaptionFont() : undefined;
+  const font = wantsCaption || summary || opts.pieceLabels ? await loadCaptionFont() : undefined;
   const bytes = await buildLayoutPdf({ title: props.title, sheets, paper, artworks, cutLines, font, summary: summary ? summaryOf(props) : undefined });
   return { blob: new Blob([bytes as BlobPart], { type: 'application/pdf' }), raster };
 }
@@ -162,6 +191,8 @@ export function PdfExportDialog(props: Props): ReactElement {
   const [cutLines, setCutLines] = useState(true);
   const [captions, setCaptions] = useState<CaptionOptions>({ products: true, copies: true });
   const [summary, setSummary] = useState(true);
+  const [pieceLabels, setPieceLabels] = useState(false);
+  const [hatch, setHatch] = useState(false);
   const [busy, setBusy] = useState<'download' | 'print' | null>(null);
   const many = plan.sheets.length > 1;
   const sheet = plan.sheets[sheetIndex] ?? plan.sheets[0];
@@ -169,7 +200,7 @@ export function PdfExportDialog(props: Props): ReactElement {
   const run = async (action: 'download' | 'print'): Promise<void> => {
     setBusy(action);
     try {
-      const { blob, raster } = await makePdf(props, paper, many && all, cutLines, { captions, summary });
+      const { blob, raster } = await makePdf(props, paper, many && all, cutLines, { captions, summary, pieceLabels, hatch });
       if (raster.length > 0) toast(`Önizleme görseliyle basıldı (vektörel değil): ${raster.join(', ')}. Vektörel baskı, bu tarayıcıda eklenmiş PDF/AI dosyalarında olur.`, 'info');
       if (action === 'print') printBlob(blob);
       else {
@@ -225,6 +256,14 @@ export function PdfExportDialog(props: Props): ReactElement {
               <FormControlLabel
                 control={<Checkbox checked={summary} onChange={(e) => setSummary(e.target.checked)} data-testid="pdf-summary" />}
                 label="Başa özet sayfası (ürün istenen/kesilen/fazla/eksik, kalıp tablosu, toplam)"
+              />
+              <FormControlLabel
+                control={<Checkbox checked={pieceLabels} onChange={(e) => setPieceLabels(e.target.checked)} data-testid="pdf-piece-labels" />}
+                label="Parçaların üstüne kod, ürün adı, ölçü ve adet yaz"
+              />
+              <FormControlLabel
+                control={<Checkbox checked={hatch} onChange={(e) => setHatch(e.target.checked)} data-testid="pdf-hatch" />}
+                label="Her ürüne ayrı tarama deseni (görselsiz parçalarda)"
               />
             </FormGroup>
           </div>

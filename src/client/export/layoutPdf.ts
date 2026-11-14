@@ -19,7 +19,7 @@ export interface LayoutPdfInput {
    * `sideways`: drawn turned by 90° clockwise, as the viewer shows tall sheets.
    * `caption`: text lines printed in a band above the layout (product names, sheet count); none when absent.
    */
-  sheets: Array<{ sheet: SheetPlan; sideways: boolean; caption?: string[] }>;
+  sheets: Array<{ sheet: SheetPlan; sideways: boolean; caption?: string[]; styles?: Map<string, PieceStyle> }>;
   paper: PdfPaper;
   /** Product artwork by piece id, in the product's declared width × height. */
   artworks: Map<string, PdfArtwork>;
@@ -29,6 +29,15 @@ export interface LayoutPdfInput {
   font?: Uint8Array;
   /** A summary page printed first, before the layouts (A4 portrait). */
   summary?: SummaryPage;
+}
+
+/** Tarama (hatch) patterns for pieces without artwork, so that each product reads differently on the sheet. */
+export type Hatch = 'diag' | 'anti' | 'horiz' | 'vert' | 'cross' | 'dots';
+
+/** What is drawn on one piece of a layout: text lines in its middle (none for no text) and a hatch pattern (or none). */
+export interface PieceStyle {
+  lines: string[];
+  hatch: Hatch | null;
 }
 
 /** A table on the summary page: column widths in mm (they add up to the text width), a header row and data rows. */
@@ -60,6 +69,9 @@ const SUMMARY_MARGIN = 10;
 const SUMMARY_ROW = 5.8;
 const SUMMARY_PT = 9;
 const SUMMARY_TITLE_PT = 14;
+/** Hatch spacing (mm) and colour. */
+const HATCH_MM = 2.5;
+const HATCH_COLOR = rgb(0.35, 0.35, 0.35);
 
 /** `text` cut short with an ellipsis so that it is at most `maxPt` wide at `size`. */
 function fit(font: PDFFont, text: string, size: number, maxPt: number): string {
@@ -123,7 +135,7 @@ export async function buildLayoutPdf(input: LayoutPdfInput): Promise<Uint8Array>
   doc.setCreator('Giyotin Kesim Planlayıcı');
   const embedded = new Map<string, Drawable>();
   let font: PDFFont | null = null;
-  if (input.font && (input.summary || input.sheets.some((s) => s.caption?.length))) {
+  if (input.font && (input.summary || input.sheets.some((s) => s.caption?.length || [...(s.styles?.values() ?? [])].some((st) => st.lines.length)))) {
     doc.registerFontkit(fontkit);
     font = await doc.embedFont(input.font, { subset: true });
   }
@@ -135,11 +147,10 @@ export async function buildLayoutPdf(input: LayoutPdfInput): Promise<Uint8Array>
       embedded.set(id, await doc.embedPage(src.getPage(0), { left, bottom, right, top }));
     } else embedded.set(id, art.type === 'png' ? await doc.embedPng(art.bytes) : await doc.embedJpg(art.bytes));
   }
-  const opts = { cutLines: input.cutLines };
-
   if (input.summary && font) drawSummary(doc, input.summary, font);
 
-  for (const { sheet, sideways, caption } of input.sheets) {
+  for (const { sheet, sideways, caption, styles } of input.sheets) {
+    const opts: DrawOpts = { cutLines: input.cutLines, styles: styles ?? new Map(), font };
     // Size of the sheet as drawn on the page.
     const dw = sideways ? sheet.height : sheet.width;
     const dh = sideways ? sheet.width : sheet.height;
@@ -216,7 +227,14 @@ interface Frame {
   sideways: boolean;
 }
 
-function drawSheet(page: PDFPage, sheet: SheetPlan, f: Frame, images: Map<string, Drawable>, opts: { cutLines: boolean }): void {
+interface DrawOpts {
+  cutLines: boolean;
+  /** Text and hatch per piece id, for this layout. */
+  styles: Map<string, PieceStyle>;
+  font: PDFFont | null;
+}
+
+function drawSheet(page: PDFPage, sheet: SheetPlan, f: Frame, images: Map<string, Drawable>, opts: DrawOpts): void {
   const H = page.getHeight();
   // Sheet coordinates (mm, y down) to PDF points (y up), through the optional quarter turn.
   const at = (x: number, y: number): { x: number; y: number } => {
@@ -224,10 +242,12 @@ function drawSheet(page: PDFPage, sheet: SheetPlan, f: Frame, images: Map<string
     return { x: (f.x + dx * f.scale) * PT, y: H - (f.y + dy * f.scale) * PT };
   };
   const thickness = 0.5;
+  const labels: Array<() => void> = [];
 
   for (const p of collectPieces(sheet.tree)) {
     const img = images.get(p.pieceId);
-    if (!img) continue;
+    const style = opts.styles.get(p.pieceId);
+    if (!img && !style) continue;
     // Corners of the piece as drawn: left/right and top/bottom on the page.
     const a = at(p.x, p.y);
     const b = at(p.x + p.w, p.y + p.h);
@@ -237,22 +257,28 @@ function drawSheet(page: PDFPage, sheet: SheetPlan, f: Frame, images: Map<string
     const bottom = Math.min(a.y, b.y);
     // The artwork is in the declared orientation. A rotated piece turns it by 90° clockwise (as in the preview),
     // and so does a sideways sheet: 0, 1 or 2 quarter turns in all.
-    const turns = (p.rotated ? 1 : 0) + (f.sideways ? 1 : 0);
-    const w = right - left;
-    const h = top - bottom;
-    const place =
-      turns === 0
-        ? { x: left, y: bottom, width: w, height: h }
-        : turns === 1
-          ? { x: left, y: top, width: h, height: w, rotate: degrees(-90) }
-          : { x: right, y: top, width: w, height: h, rotate: degrees(180) };
-    if (img instanceof PDFImage) page.drawImage(img, place);
-    else page.drawPage(img, place);
+    if (img) {
+      const turns = (p.rotated ? 1 : 0) + (f.sideways ? 1 : 0);
+      const w = right - left;
+      const h = top - bottom;
+      const place =
+        turns === 0
+          ? { x: left, y: bottom, width: w, height: h }
+          : turns === 1
+            ? { x: left, y: top, width: h, height: w, rotate: degrees(-90) }
+            : { x: right, y: top, width: w, height: h, rotate: degrees(180) };
+      if (img instanceof PDFImage) page.drawImage(img, place);
+      else page.drawPage(img, place);
+    } else if (style?.hatch) hatchRect(page, left, bottom, right, top, style.hatch);
+    // Texts go on top of the cut lines, after them.
+    if (style && style.lines.length > 0 && opts.font) {
+      const font = opts.font;
+      labels.push(() => labelRect(page, font, style.lines, left, bottom, right, top));
+    }
   }
 
-  if (!opts.cutLines) return;
-
-  const line = (x1: number, y1: number, x2: number, y2: number): void => page.drawLine({ start: at(x1, y1), end: at(x2, y2), thickness, color: BLACK });
+  const cutLines = (): void => {
+  const line =(x1: number, y1: number, x2: number, y2: number): void => page.drawLine({ start: at(x1, y1), end: at(x2, y2), thickness, color: BLACK });
   // Edge trim is cut too: the border of the usable area, where it is inside the sheet.
   const u = sheet.usable;
   if (u.x > 0) line(u.x, 0, u.x, sheet.height);
@@ -269,4 +295,70 @@ function drawSheet(page: PDFPage, sheet: SheetPlan, f: Frame, images: Map<string
       line(c.x, y, c.x + c.w, y);
     }
   }
+  };
+  if (opts.cutLines) cutLines();
+  for (const draw of labels) draw();
+}
+
+/** Tarama lines (or dots) over the rectangle l..r × b..t (pt, y up); every line is cut to the rectangle. */
+function hatchRect(page: PDFPage, l: number, b: number, r: number, t: number, kind: Hatch): void {
+  const step = HATCH_MM * PT;
+  const seg = (x1: number, y1: number, x2: number, y2: number): void => {
+    page.drawLine({ start: { x: x1, y: y1 }, end: { x: x2, y: y2 }, thickness: 0.3, color: HATCH_COLOR });
+  };
+  const diag = (): void => {
+    // y = x + c, for every c that touches the rectangle.
+    for (let c = b - r; c <= t - l; c += step) {
+      const x0 = Math.max(l, b - c);
+      const x1 = Math.min(r, t - c);
+      if (x1 > x0) seg(x0, x0 + c, x1, x1 + c);
+    }
+  };
+  const anti = (): void => {
+    // y = c − x, for every c that touches the rectangle.
+    for (let c = b + l; c <= t + r; c += step) {
+      const x0 = Math.max(l, c - t);
+      const x1 = Math.min(r, c - b);
+      if (x1 > x0) seg(x0, c - x0, x1, c - x1);
+    }
+  };
+  const horiz = (): void => {
+    for (let y = b + step / 2; y < t; y += step) seg(l, y, r, y);
+  };
+  const vert = (): void => {
+    for (let x = l + step / 2; x < r; x += step) seg(x, b, x, t);
+  };
+  if (kind === 'diag') diag();
+  else if (kind === 'anti') anti();
+  else if (kind === 'horiz') horiz();
+  else if (kind === 'vert') vert();
+  else if (kind === 'cross') {
+    diag();
+    anti();
+  } else {
+    for (let x = l + step / 2; x < r; x += step) {
+      for (let y = b + step / 2; y < t; y += step) page.drawCircle({ x, y, size: 0.45 * PT, color: HATCH_COLOR });
+    }
+  }
+}
+
+/** Text lines in the middle of a piece, on a white block; the font shrinks with the piece, and the lines are cut to fit. */
+function labelRect(page: PDFPage, font: PDFFont, lines: string[], l: number, b: number, r: number, t: number): void {
+  const w = r - l;
+  const h = t - b;
+  const size = Math.min(CAPTION_PT, Math.max(4, (Math.min(w, h) / PT) / 6));
+  const pitch = size * 1.25;
+  const blockH = lines.length * pitch + 4;
+  // Too small for any text: the piece is left bare.
+  if (w < 12 * PT || h < blockH) return;
+  const texts = lines.map((s) => fit(font, s, size, w - 6));
+  const blockW = Math.max(...texts.map((s) => font.widthOfTextAtSize(s, size))) + 6;
+  const cx = (l + r) / 2;
+  const cy = (b + t) / 2;
+  page.drawRectangle({ x: cx - blockW / 2, y: cy - blockH / 2, width: blockW, height: blockH, color: rgb(1, 1, 1) });
+  texts.forEach((s, i) => {
+    const tw = font.widthOfTextAtSize(s, size);
+    const baseline = cy + blockH / 2 - 2 - pitch * i - size * 0.8;
+    page.drawText(s, { x: cx - tw / 2, y: baseline, size, font, color: BLACK });
+  });
 }

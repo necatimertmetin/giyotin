@@ -134,3 +134,28 @@ describe('layout PDF summary', () => {
     expect(text).toContain('Toplam');
   });
 });
+
+describe('layout PDF piece marks', () => {
+  it('writes the piece text and draws hatch lines only where asked', async () => {
+    const font = new Uint8Array(readFileSync(join(process.cwd(), 'node_modules/pdfjs-dist/standard_fonts/LiberationSans-Regular.ttf')));
+    const styles = new Map([['a', { lines: ['A · Kartvizit ğş', '300 × 200 mm', '3 adet bu kalıpta'], hatch: null }]]);
+    const bytes = await buildLayoutPdf({
+      title: 'Sipariş',
+      sheets: plan.sheets.map((sheet) => ({ sheet, sideways: false, styles })),
+      paper: 'sheet',
+      artworks: new Map(),
+      cutLines: true,
+      font,
+    });
+    const doc = await pdfjs.getDocument({ data: bytes }).promise;
+    const text = (await (await doc.getPage(1)).getTextContent()).items.map((i) => ('str' in i ? i.str : '')).join('');
+    expect(text).toContain('300');
+    expect(text).toContain('adet');
+
+    const hatched = new Map([['a', { lines: [], hatch: 'diag' as const }]]);
+    const withHatch = await buildLayoutPdf({ title: 'S', sheets: plan.sheets.map((sheet) => ({ sheet, sideways: false, styles: hatched })), paper: 'sheet', artworks: new Map(), cutLines: false });
+    const hdoc = await pdfjs.getDocument({ data: withHatch }).promise;
+    const ops = await (await hdoc.getPage(1)).getOperatorList();
+    expect(ops.fnArray.filter((fn) => fn === pdfjs.OPS.constructPath).length).toBeGreaterThan(0);
+  });
+});
