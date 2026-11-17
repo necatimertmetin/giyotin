@@ -7,6 +7,7 @@ import type { Hatch, PdfArtwork, PdfImage, PdfPaper, PieceStyle, SummaryPage } f
 import { getArtworkSource } from '../import/artworkSources';
 import type { PieceInfo } from './viewerTypes';
 import { fmtNum } from '../format';
+import { PROFILE_LABEL } from '../labels';
 import { useToast } from '../hooks';
 
 interface Props {
@@ -38,10 +39,12 @@ async function toPng(dataUrl: string): Promise<PdfImage> {
   return { bytes: new Uint8Array(await blob.arrayBuffer()), type: 'png' };
 }
 
+/** What gets printed: the summary and the layouts, only the summary, or only the layouts. */
+export type PdfContent = 'both' | 'summary' | 'layouts';
+
 /** What the PDF carries besides the layouts. */
 export interface PdfOptions {
-  /** A summary page (ordered, cut and excess per product, layouts, totals) printed first. */
-  summary: boolean;
+  content: PdfContent;
   /** Written in the middle of each piece of the layouts: the product name and how many are cut from it. Off by default. */
   pieceLabels: boolean;
   /** Each product gets its own hatch pattern on the pieces without artwork. Off by default. */
@@ -78,44 +81,86 @@ async function loadCaptionFont(): Promise<Uint8Array> {
 const num = (n: number): string => n.toLocaleString('tr-TR');
 
 /**
- * The summary page for the whole plan: per product how many were ordered, cut and over or short, then per layout
- * its stock, sheet count and pieces, and the totals. Excess is the planner's overproduction where it reports one.
+ * The summary for the whole plan, readable without the layout pages: the plan at a glance, the layouts with their
+ * paper and sheet counts, then per layout what one sheet holds of each product, and finally the order check.
  */
-function summaryOf(props: Props): SummaryPage {
+export function summaryOf(props: Pick<Props, 'plan' | 'pieces' | 'title'>): SummaryPage {
   const { plan } = props;
-  const productRows: string[][] = [];
-  for (const [id, info] of props.pieces) {
-    const placed = plan.placed[id] ?? 0;
-    const over = plan.overproduced?.[id] ?? Math.max(0, placed - info.quantity);
-    const short = Math.max(0, info.quantity - placed);
-    productRows.push([info.name, num(info.quantity), num(placed), over > 0 ? num(over) : '–', short > 0 ? num(short) : '–']);
-  }
-  const layoutRows = plan.sheets.map((sheet, i) => {
-    const pieces = collectPieces(sheet.tree).length;
-    return [String(i + 1), sheet.stockName, num(sheet.copies), num(sheet.stats.cuts), num(pieces), num(pieces * sheet.copies)];
+  const R = 'right' as const;
+  const L = 'left' as const;
+  const dims = (w: number, h: number): string => `${fmtNum(w)} × ${fmtNum(h)}`;
+  const counts = plan.sheets.map((sheet) => {
+    const m = new Map<string, number>();
+    for (const p of collectPieces(sheet.tree)) m.set(p.pieceId, (m.get(p.pieceId) ?? 0) + 1);
+    return m;
   });
-  const notes = [
-    `Toplam: ${num(plan.totals.sheetCount)} tabaka, ${num(cutSteps(plan))} kesim adımı, kağıt kullanımı %${fmtNum(plan.totals.utilization * 100)}.`,
-    ...(plan.fulfilled ? [] : ['Bu planda istenen adetler tam tamamlanamadı; eksikler yukarıda.']),
-  ];
-  return {
-    title: `${props.title} — kalıp özeti${plan.label ? ` (${plan.label})` : ''}`,
-    tables: [
-      { widths: [88, 25, 25, 25, 27], header: ['Ürün', 'İstenen', 'Kesilen', 'Fazla', 'Eksik'], rows: productRows },
-      { widths: [14, 62, 24, 26, 30, 34], header: ['Kalıp', 'Stok', 'Tabaka', 'Kesim', 'Parça/tabaka', 'Toplam parça'], rows: layoutRows },
+  const perSheet = counts.map((m) => [...m.values()].reduce((a, n) => a + n, 0));
+  const totalPieces = plan.sheets.reduce((a, s, i) => a + s.copies * perSheet[i]!, 0);
+  const steps = cutSteps(plan);
+
+  const layoutTable = {
+    heading: 'Kalıplar',
+    widths: [16, 54, 30, 22, 24, 16, 28],
+    header: ['Kalıp', 'Kağıt', 'Ölçü (mm)', 'Tabaka', 'Tabakada', 'Çeşit', 'Toplam parça'],
+    align: [L, L, L, R, R, R, R],
+    rows: [
+      ...plan.sheets.map((s, i) => [String(i + 1), s.stockName, dims(s.width, s.height), num(s.copies), num(perSheet[i]!), num(counts[i]!.size), num(perSheet[i]! * s.copies)]),
+      ['', 'Toplam', '', num(plan.totals.sheetCount), '', '', num(totalPieces)],
     ],
-    notes,
+    total: true,
+  };
+
+  const perLayout = plan.sheets.map((s, i) => ({
+    heading: `Kalıp ${i + 1} — ${s.stockName} (${dims(s.width, s.height)} mm) — ${num(s.copies)} tabaka — bir tabakada ${num(perSheet[i]!)} parça, ${num(counts[i]!.size)} çeşit`,
+    widths: [12, 80, 30, 30, 38],
+    header: ['Kod', 'Ürün', 'Ölçü (mm)', 'Bir tabakada', `Toplam (× ${num(s.copies)})`],
+    align: [L, L, L, R, R],
+    rows: [...props.pieces.values()]
+      .filter((p) => counts[i]!.has(p.id))
+      .map((p) => {
+        const n = counts[i]!.get(p.id)!;
+        return [p.code, p.name, dims(p.width, p.height), num(n), num(n * s.copies)];
+      }),
+  }));
+
+  const orderRows = [...props.pieces.values()]
+    .filter((p) => p.quantity > 0 || (plan.placed[p.id] ?? 0) > 0)
+    .map((p) => {
+      const placed = plan.placed[p.id] ?? 0;
+      const diff = placed - p.quantity;
+      return [p.code, p.name, dims(p.width, p.height), num(p.quantity), num(placed), diff === 0 ? 'tam' : diff > 0 ? `+${num(diff)} fazla` : `${num(-diff)} eksik`];
+    });
+
+  return {
+    title: `${props.title} — kesim özeti${plan.label ? ` (${PROFILE_LABEL[plan.label] ?? plan.label})` : ''}`,
+    lead: [
+      `${num(plan.sheets.length)} çeşit kalıp, toplam ${num(plan.totals.sheetCount)} tabaka, ${num(totalPieces)} parça.`,
+      `${num(steps)} kesim adımı (her kalıp istif halinde bir kez kesilir), kağıt kullanımı %${fmtNum(plan.totals.utilization * 100, 1)}.`,
+    ],
+    tables: [
+      layoutTable,
+      ...perLayout,
+      {
+        heading: 'Sipariş kontrolü',
+        widths: [12, 74, 28, 24, 24, 28],
+        header: ['Kod', 'Ürün', 'Ölçü (mm)', 'Sipariş', 'Kesilen', 'Fark'],
+        align: [L, L, L, R, R, R],
+        rows: orderRows,
+      },
+    ],
+    notes: plan.fulfilled ? [] : ['Bu planda istenen adetler tam tamamlanamadı; eksikler "Fark" sütununda.'],
   };
 }
 
 /** The PDF, and the names of products printed from their preview image because no vector original was found. */
 async function makePdf(props: Props, paper: PdfPaper, all: boolean, cutLines: boolean, opts: PdfOptions): Promise<{ blob: Blob; raster: string[] }> {
   const { buildLayoutPdf } = await import('../export/layoutPdf');
-  const { summary } = opts;
+  const summary = opts.content !== 'layouts';
+  const layouts = opts.content !== 'summary';
   const artworks = new Map<string, PdfArtwork>();
   const raster: string[] = [];
   for (const [id, info] of props.pieces) {
-    if (!info.artwork) continue;
+    if (!info.artwork || !layouts) continue;
     const artworkId = props.artworkIds.get(id);
     const source = artworkId ? await getArtworkSource(artworkId) : null;
     if (source) artworks.set(id, { kind: 'vector', pdf: source.pdf, box: source.box });
@@ -130,13 +175,25 @@ async function makePdf(props: Props, paper: PdfPaper, all: boolean, cutLines: bo
       sideways: props.sidewaysOf(i),
       styles: opts.pieceLabels || opts.hatch ? stylesOf(props, sheet, opts) : undefined,
     }))
-    .filter((_, i) => all || i === props.sheetIndex);
+    .filter((_, i) => layouts && (all || i === props.sheetIndex));
   const font = summary || opts.pieceLabels ? await loadCaptionFont() : undefined;
   const bytes = await buildLayoutPdf({ title: props.title, sheets, paper, artworks, cutLines, font, summary: summary ? summaryOf(props) : undefined });
   return { blob: new Blob([bytes as BlobPart], { type: 'application/pdf' }), raster };
 }
 
-const fileName = (title: string): string => `${title.replace(/[\\/:*?"<>|]+/g, '').trim() || 'kesim'} - kalip.pdf`;
+const fileName = (title: string, content: PdfContent): string => `${title.replace(/[\\/:*?"<>|]+/g, '').trim() || 'kesim'} - ${content === 'summary' ? 'ozet' : 'kalip'}.pdf`;
+
+const CONTENT_KEY = 'giyotin.pdfContent';
+/** The last choice is remembered per browser: whoever prints only summaries should not have to pick it every time. */
+function loadContent(): PdfContent {
+  try {
+    const v = localStorage.getItem(CONTENT_KEY);
+    if (v === 'both' || v === 'summary' || v === 'layouts') return v;
+  } catch {
+    /* storage unavailable */
+  }
+  return 'both';
+}
 
 /** Prints the PDF through a hidden frame, so the browser's own print dialog opens on it. */
 function printBlob(blob: Blob): void {
@@ -163,7 +220,16 @@ export function PdfExportDialog(props: Props): ReactElement {
   const [paper, setPaper] = useState<PdfPaper>('a4');
   const [all, setAll] = useState(true);
   const [cutLines, setCutLines] = useState(true);
-  const [summary, setSummary] = useState(true);
+  const [content, setContentState] = useState<PdfContent>(loadContent);
+  const setContent = (c: PdfContent): void => {
+    setContentState(c);
+    try {
+      localStorage.setItem(CONTENT_KEY, c);
+    } catch {
+      /* storage unavailable: the choice just is not remembered */
+    }
+  };
+  const layouts = content !== 'summary';
   const [pieceLabels, setPieceLabels] = useState(false);
   const [hatch, setHatch] = useState(false);
   const [busy, setBusy] = useState<'download' | 'print' | null>(null);
@@ -173,13 +239,13 @@ export function PdfExportDialog(props: Props): ReactElement {
   const run = async (action: 'download' | 'print'): Promise<void> => {
     setBusy(action);
     try {
-      const { blob, raster } = await makePdf(props, paper, many && all, cutLines, { summary, pieceLabels, hatch });
+      const { blob, raster } = await makePdf(props, paper, many && all, cutLines, { content, pieceLabels, hatch });
       if (raster.length > 0) toast(`Önizleme görseliyle basıldı (vektörel değil): ${raster.join(', ')}. Vektörel baskı, bu tarayıcıda eklenmiş PDF/AI dosyalarında olur.`, 'info');
       if (action === 'print') printBlob(blob);
       else {
         const a = document.createElement('a');
         a.href = URL.createObjectURL(blob);
-        a.download = fileName(props.title);
+        a.download = fileName(props.title, content);
         a.click();
         setTimeout(() => URL.revokeObjectURL(a.href), 10_000);
       }
@@ -193,9 +259,18 @@ export function PdfExportDialog(props: Props): ReactElement {
 
   return (
     <Dialog open={open} onClose={busy ? undefined : onClose} maxWidth="xs" fullWidth data-testid="pdf-dialog">
-      <DialogTitle>Kalıbı PDF olarak al</DialogTitle>
+      <DialogTitle>PDF / Yazdır</DialogTitle>
       <DialogContent>
         <Stack spacing={2}>
+          <div>
+            <Typography variant="subtitle2">Ne basılsın</Typography>
+            <RadioGroup value={content} onChange={(e) => setContent(e.target.value as PdfContent)}>
+              <FormControlLabel value="both" control={<Radio />} label="Özet + kalıp sayfaları" data-testid="pdf-content-both" />
+              <FormControlLabel value="summary" control={<Radio />} label="Sadece özet (kalıplar, her kalıpta hangi üründen kaç tane, toplamlar)" data-testid="pdf-content-summary" />
+              <FormControlLabel value="layouts" control={<Radio />} label="Sadece kalıp sayfaları" data-testid="pdf-content-layouts" />
+            </RadioGroup>
+          </div>
+          {layouts && (<>
           <div>
             <Typography variant="subtitle2">Kağıt boyutu</Typography>
             <RadioGroup value={paper} onChange={(e) => setPaper(e.target.value as PdfPaper)}>
@@ -216,12 +291,8 @@ export function PdfExportDialog(props: Props): ReactElement {
             </RadioGroup>
           </div>
           <div>
-            <Typography variant="subtitle2">PDF'e eklenenler</Typography>
+            <Typography variant="subtitle2">Kalıp sayfalarında</Typography>
             <FormGroup>
-              <FormControlLabel
-                control={<Checkbox checked={summary} onChange={(e) => setSummary(e.target.checked)} data-testid="pdf-summary" />}
-                label="Başa özet sayfası (ürün istenen/kesilen/fazla/eksik, kalıp tablosu, toplam)"
-              />
               <FormControlLabel
                 control={<Checkbox checked={pieceLabels} onChange={(e) => setPieceLabels(e.target.checked)} data-testid="pdf-piece-labels" />}
                 label="Parçaların ortasına ürün adı ve kaç adet basılacağı"
@@ -244,6 +315,7 @@ export function PdfExportDialog(props: Props): ReactElement {
           {paper === 'sheet' && (
             <Alert severity="info">Yazdırırken ölçeklemeyi <b>Gerçek boyut / %100</b> seçin. Kağıttan büyük kalıplar için plotter gerekir.</Alert>
           )}
+          </>)}
         </Stack>
       </DialogContent>
       <DialogActions>

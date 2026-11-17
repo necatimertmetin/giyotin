@@ -1,13 +1,13 @@
-import { Box, Button, Chip, Divider, Paper, Stack, Tab, Table, TableBody, TableCell, TableHead, TableRow, Tabs, Typography } from '@mui/material';
+import { Box, Button, Chip, Divider, Paper, Stack, Tab, Tabs, Typography } from '@mui/material';
 import { useEffect, useMemo, useState, type ReactElement, type ReactNode } from 'react';
-import { collectPieces, type CuttingSettings, type OptimizationInput, type OptimizationResult, type Plan } from '../../engine';
+import { type CuttingSettings, type OptimizationInput, type OptimizationResult, type Plan } from '../../engine';
 import { useArtworks } from '../hooks';
-import { FONT_MONO } from '../theme';
-import { fmtArea, fmtInt, fmtNum, fmtPercent } from '../format';
+import { fmtArea, fmtInt, fmtPercent } from '../format';
 import { CutCaption, CutPlayer } from './CutPlayer';
 import PrintIcon from '@mui/icons-material/PrintOutlined';
 import { PdfExportDialog } from './PdfExportDialog';
 import { PlanStats } from './PlanStats';
+import { PlanSummary } from './PlanSummary';
 import { SelectionInfo } from './SelectionInfo';
 import { SheetViewer } from './SheetViewer';
 import { sheetLabel } from './cutText';
@@ -47,11 +47,11 @@ export function PlanView({ plan, input, settings, meta, actions, stacked = false
   }, [plan]);
 
   const sheet = plan.sheets[sheetIndex] ?? plan.sheets[0];
-  const sheetPieceCounts = useMemo(() => {
-    const m = new Map<string, number>();
-    if (sheet) for (const p of collectPieces(sheet.tree)) m.set(p.pieceId, (m.get(p.pieceId) ?? 0) + 1);
-    return m;
-  }, [sheet]);
+  const showSheet = (i: number): void => {
+    setSheetIndex(i);
+    setSelection(null);
+    setStep(null);
+  };
 
   if (!sheet) {
     return (
@@ -71,11 +71,7 @@ export function PlanView({ plan, input, settings, meta, actions, stacked = false
       <Paper sx={{ p: 0, order: stacked ? 2 : 0 }}>
         <Tabs
           value={sheetIndex}
-          onChange={(_, v: number) => {
-            setSheetIndex(v);
-            setSelection(null);
-            setStep(null);
-          }}
+          onChange={(_, v: number) => showSheet(v)}
           variant="scrollable"
           scrollButtons="auto"
           aria-label="Kalıplar"
@@ -110,35 +106,13 @@ export function PlanView({ plan, input, settings, meta, actions, stacked = false
           <Box sx={{ minWidth: 0 }}>
             <Stack spacing={2}>
               <SelectionInfo selection={selection} pieces={pieces} kerf={settings.kerf} />
-              <Divider />
-              <Typography variant="subtitle2">Ürünler (bu kalıp)</Typography>
-              <Table size="small">
-                <TableHead>
-                  <TableRow>
-                    <TableCell>Kod</TableCell>
-                    <TableCell>Ürün</TableCell>
-                    <TableCell align="right">1 tabakada</TableCell>
-                    {sheet.copies > 1 && <TableCell align="right">Bu kalıpta (×{fmtInt(sheet.copies)})</TableCell>}
-                    <TableCell align="right">Tüm plan / sipariş</TableCell>
-                  </TableRow>
-                </TableHead>
-                <TableBody>
-                  {[...pieces.values()].map((p) => (
-                    <TableRow key={p.id}>
-                      <TableCell sx={{ fontFamily: FONT_MONO }}>
-                        <Box component="span" sx={{ display: 'inline-block', width: 12, height: 12, bgcolor: p.fill, border: `1px solid ${p.stroke}`, mr: 0.75, verticalAlign: -1 }} />
-                        {p.code}
-                      </TableCell>
-                      <TableCell>{p.name}<Typography variant="caption" display="block" color="text.secondary">{fmtNum(p.width)}×{fmtNum(p.height)} mm</Typography></TableCell>
-                      <TableCell align="right" sx={{ fontFamily: FONT_MONO }}>{sheetPieceCounts.get(p.id) ? fmtInt(sheetPieceCounts.get(p.id) ?? 0) : '—'}</TableCell>
-                      {sheet.copies > 1 && <TableCell align="right" sx={{ fontFamily: FONT_MONO }}>{sheetPieceCounts.get(p.id) ? fmtInt((sheetPieceCounts.get(p.id) ?? 0) * sheet.copies) : '—'}</TableCell>}
-                      <TableCell align="right" sx={{ fontFamily: FONT_MONO }}>{fmtInt(plan.placed[p.id] ?? 0)} / {fmtInt(p.quantity)}</TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
             </Stack>
           </Box>
+        </Box>
+        <Divider />
+        <Box sx={{ p: 2 }}>
+          <Typography variant="h6" sx={{ mb: 1 }}>Plan özeti</Typography>
+          <PlanSummary plan={plan} pieces={pieces} current={sheetIndex} onSelect={showSheet} />
         </Box>
       </Paper>
     </Stack>

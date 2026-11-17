@@ -41,13 +41,21 @@ export interface PieceStyle {
 
 /** A table on the summary page: column widths in mm (they add up to the text width), a header row and data rows. */
 export interface SummaryTable {
+  /** A line printed above the table, kept on the same page as its first rows. */
+  heading?: string;
   widths: number[];
   header: string[];
   rows: string[][];
+  /** Per column; numbers read best right-aligned. Default: left. */
+  align?: Array<'left' | 'right'>;
+  /** The last row is a total: shaded like the header. */
+  total?: boolean;
 }
 
 export interface SummaryPage {
   title: string;
+  /** Lines between the title and the first table: the plan at a glance. */
+  lead?: string[];
   tables: SummaryTable[];
   /** Lines under the tables: totals, shortfalls and similar. */
   notes: string[];
@@ -93,16 +101,18 @@ function drawSummary(doc: PDFDocument, s: SummaryPage, font: PDFFont): void {
     }
   };
   // Text with its baseline at ~¾ of the row height below `top`.
-  const put = (text: string, xMm: number, top: number, size: number, maxMm: number): void => {
-    page.drawText(fit(font, text, size, maxMm * PT), { x: xMm * PT, y: page.getHeight() - (top + SUMMARY_ROW * 0.75) * PT, size, font, color: BLACK });
+  const put = (text: string, xMm: number, top: number, size: number, maxMm: number, right = false): void => {
+    const shown = fit(font, text, size, maxMm * PT);
+    const dx = right ? maxMm * PT - font.widthOfTextAtSize(shown, size) : 0;
+    page.drawText(shown, { x: xMm * PT + dx, y: page.getHeight() - (top + SUMMARY_ROW * 0.75) * PT, size, font, color: BLACK });
   };
-  const row = (cells: string[], widths: number[], shade: boolean): void => {
+  const row = (cells: string[], t: SummaryTable, shade: boolean): void => {
     newPageIf(SUMMARY_ROW);
     if (shade) page.drawRectangle({ x: SUMMARY_MARGIN * PT, y: page.getHeight() - (y + SUMMARY_ROW) * PT, width: usable * PT, height: SUMMARY_ROW * PT, color: SHADE });
     let x = SUMMARY_MARGIN;
     cells.forEach((c, i) => {
-      put(c, x + 1, y, SUMMARY_PT, widths[i]! - 2);
-      x += widths[i]!;
+      put(c, x + 1, y, SUMMARY_PT, t.widths[i]! - 2, t.align?.[i] === 'right');
+      x += t.widths[i]!;
     });
     y += SUMMARY_ROW;
   };
@@ -110,9 +120,21 @@ function drawSummary(doc: PDFDocument, s: SummaryPage, font: PDFFont): void {
   newPageIf(SUMMARY_TITLE_PT * 0.5);
   put(s.title, SUMMARY_MARGIN, y, SUMMARY_TITLE_PT, usable);
   y += SUMMARY_ROW * 2;
+  for (const line of s.lead ?? []) {
+    newPageIf(SUMMARY_ROW);
+    put(line, SUMMARY_MARGIN, y, SUMMARY_PT + 1, usable);
+    y += SUMMARY_ROW;
+  }
+  if (s.lead?.length) y += SUMMARY_ROW * 0.5;
   for (const t of s.tables) {
-    row(t.header, t.widths, true);
-    for (const r of t.rows) row(r, t.widths, false);
+    // A heading never ends a page alone: it moves on with the header and the first rows.
+    newPageIf(SUMMARY_ROW * ((t.heading ? 1 : 0) + 1 + Math.min(3, t.rows.length)));
+    if (t.heading) {
+      put(t.heading, SUMMARY_MARGIN, y, SUMMARY_PT + 1, usable);
+      y += SUMMARY_ROW;
+    }
+    row(t.header, t, true);
+    t.rows.forEach((r, i) => row(r, t, !!t.total && i === t.rows.length - 1));
     y += SUMMARY_ROW;
   }
   for (const note of s.notes) {
