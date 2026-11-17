@@ -114,6 +114,7 @@ export function parseSettings(raw: unknown): CuttingSettings {
     searchWidth: Math.round(clamp(r.searchWidth, 1, 10, d.searchWidth)),
     costWeight: clamp(r.costWeight, 0, 1, d.costWeight),
     seed: Math.round(clamp(r.seed, 0, 2147483647, d.seed)),
+    ...(r.sameOrientation === true ? { sameOrientation: true } : {}),
   };
 }
 

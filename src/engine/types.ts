@@ -69,6 +69,8 @@ export interface CuttingSettings {
   costWeight: number;
   /** Seed for the (deterministic) tie-breaking used by local improvement. */
   seed: number;
+  /** Pieces of the same size all face the same way on a sheet (no mix of turned and upright copies). */
+  sameOrientation?: boolean;
 }
 
 /** The trim of each edge: the per-edge values if set, otherwise `edgeMargin` on all four edges. */

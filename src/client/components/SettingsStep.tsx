@@ -117,6 +117,13 @@ export function SettingsStep({ settings, machineName, onChange, profiles, onProf
               <NumberField value={settings.minOffcutHeight} onChange={(v) => set({ minOffcutHeight: Math.max(0, v ?? 0) })} unit="mm" sx={{ width: 120 }} inputProps={{ 'aria-label': 'Min. artık yüksekliği' }} />
             </Stack>
           </Card>
+
+          <Card n={5} title="Ürün yönü" hint="Açıksa aynı ölçüdeki ürünler bir tabakada hep aynı yöne bakar; bazısı yatık bazısı dik dizilmez. Biraz daha fazla kağıt harcayabilir.">
+            <ToggleButtonGroup exclusive size="small" value={settings.sameOrientation ? 'same' : 'free'} onChange={(_, v: 'same' | 'free' | null) => v && set({ sameOrientation: v === 'same' ? true : undefined })}>
+              <ToggleButton value="free" sx={{ px: 1.5 }} data-testid="orientation-free">Serbest</ToggleButton>
+              <ToggleButton value="same" sx={{ px: 1.5 }} data-testid="orientation-same">Aynı yöne baksın</ToggleButton>
+            </ToggleButtonGroup>
+          </Card>
         </Stack>
 
         <Box sx={{ minWidth: 0 }}>

@@ -16,6 +16,7 @@ import {
   type SheetPattern,
   type SheetSearchConfig,
 } from './sheetSearch';
+import { clusterPieces } from './cluster';
 import { cutSteps, edgeMarginsOf } from './types';
 import type {
   CuttingSettings,
@@ -237,10 +238,23 @@ function sheetPatterns(
     beamWidth: width,
     bladeLength: Number.isFinite(bladeOf(ctx.settings)) ? toUnits(bladeOf(ctx.settings)) : undefined,
     classify: ctx.classify,
+    ...(ctx.settings.sameOrientation ? { orientGroup: sizeGroups(orientations) } : {}),
   };
   const patterns = searchSheet(cfg, budget, maxResults).filter((p) => p.pieceArea > 0);
   if (budget.stopped === 'completed') ctx.cache.set(key, patterns);
   return patterns;
+}
+
+/** Group index per piece: pieces with the same size (either way round) share a group; -1 when not placed here. */
+function sizeGroups(orientations: Orientation[][]): number[] {
+  const ids = new Map<string, number>();
+  return orientations.map((list) => {
+    const o = list[0];
+    if (!o) return -1;
+    const key = `${Math.min(o.w, o.h)}x${Math.max(o.w, o.h)}`;
+    if (!ids.has(key)) ids.set(key, ids.size);
+    return ids.get(key)!;
+  });
 }
 
 const ratioOf = (ctx: Ctx, stock: StockCtx, p: SheetPattern, prof: Profile): number =>
@@ -390,12 +404,33 @@ function improve(ctx: Ctx, best: OuterState, prof: Profile, budget: SearchBudget
 // Plan assembly
 // ---------------------------------------------------------------------------------------------
 
+/**
+ * Fewer layouts for the same sheets: a layout whose every product count is matched by another layout on the same
+ * stock is dropped and its sheets are cut with that other layout (a few pieces more, one cutting setup less).
+ */
+function absorbLayouts(ctx: Ctx, state: OuterState, prof: Profile): OuterState {
+  const groups = state.groups.map((g) => ({ ...g }));
+  const covers = (big: Group, small: Group): boolean => small.pattern.counts.every((c, i) => (big.pattern.counts[i] ?? 0) >= c);
+  let changed = false;
+  for (const small of [...groups].sort((a, b) => a.copies - b.copies)) {
+    const big = groups
+      .filter((g) => g !== small && g.stock === small.stock && covers(g, small))
+      .sort((a, b) => b.copies - a.copies)[0];
+    if (!big) continue;
+    big.copies += small.copies;
+    groups.splice(groups.indexOf(small), 1);
+    changed = true;
+  }
+  return changed ? restart(ctx, groups, prof) : state;
+}
+
 function buildPlan(ctx: Ctx, state: OuterState, prof: Profile): Plan {
   const { input } = ctx;
+  state = absorbLayouts(ctx, state, prof);
   const built: SheetPlan[] = state.groups.map((grp) => {
     const stockSpec = input.stocks[grp.stock]!;
     const stock = ctx.stocks[grp.stock]!;
-    const tree = scaleTree(grp.pattern.tree, 1 / UNIT);
+    const tree = scaleTree(clusterPieces(grp.pattern.tree, ctx.kerf), 1 / UNIT);
     const usable = {
       x: stock.usable.x / UNIT,
       y: stock.usable.y / UNIT,
@@ -503,35 +538,32 @@ function singleStockCombos(ctx: Ctx, cap = 12): Array<Set<number>> {
   return combos.slice(0, cap).map((c) => new Set(c));
 }
 
-/** Extra paper (fraction of the fewest sheets that work) the single-layout plans may spend to save cuts. */
-const CUT_SAVING_PAPER_SLACK = 0.1;
-
 /**
- * One layout covering all remaining demand of `pieces` on stock `j`, repeated m times. Cuts are made once per
- * layout (the whole stack is cut together), so among the layouts that need at most 10% more sheets than the
- * fewest that work, the one with the fewest cuts wins.
+ * One layout covering all remaining demand of `pieces` on stock `j`, repeated m times: the fewest sheets that work,
+ * and among layouts needing that many, the one with the fewest cuts.
  */
 function singleLayout(ctx: Ctx, j: number, pieces: number[], demand: number[], maxCopies: number, budget: SearchBudget): Group | null {
   const stock = ctx.stocks[j]!;
   const usableArea = (stock.usable.w * stock.usable.h) / UNIT2;
   const demandArea = pieces.reduce((a, i) => a + (demand[i] ?? 0) * (ctx.pieceAreaMm[i] ?? 0), 0);
   const mLow = Math.max(1, Math.ceil(demandArea / usableArea));
-  const mHigh = Math.min(maxCopies, mLow + 40);
-  let best: Group | null = null;
-  let mLimit = mHigh;
-  for (let m = mLow; m <= mLimit; m++) {
-    if (budgetExhausted(budget)) return best;
+  // Area is only a lower bound: with rotation limits a sheet may hold far less, so the range is wide. Copy counts that
+  // ask for the same pieces per sheet are searched once.
+  const mHigh = Math.min(maxCopies, mLow * 2 + 40);
+  let last = '';
+  for (let m = mLow; m <= mHigh; m++) {
+    if (budgetExhausted(budget)) return null;
     const rem = demand.map((r, i) => (pieces.includes(i) ? Math.ceil(r / m) : 0));
+    const key = rem.join(',');
+    if (key === last) continue;
+    last = key;
     const need = pieces.reduce((a, i) => a + (rem[i] ?? 0) * (ctx.pieceAreaMm[i] ?? 0), 0);
     if (need > usableArea) continue;
     const fits = sheetPatterns(ctx, j, rem, budget).filter((p) => pieces.every((i) => (p.counts[i] ?? 0) >= (rem[i] ?? 0)));
     const pattern = fits.sort((x, y) => x.cuts - y.cuts)[0];
-    if (pattern) {
-      if (!best) mLimit = Math.min(mHigh, Math.ceil(m * (1 + CUT_SAVING_PAPER_SLACK)));
-      if (!best || pattern.cuts < best.pattern.cuts) best = { stock: j, pattern, copies: m };
-    }
+    if (pattern) return { stock: j, pattern, copies: m };
   }
-  return best;
+  return null;
 }
 
 /** Covers everything still missing in `s` with one repeated layout per stock (overproduction allowed). */
@@ -543,6 +575,18 @@ function completeWithLayouts(ctx: Ctx, s: OuterState, allowed: Set<number>, prof
     const j = [...allowed].find((k) => (ctx.orientations[k]![i]?.length ?? 0) > 0 && (s.left[k] ?? 0) > 0);
     if (j === undefined) return null;
     assigned.set(j, [...(assigned.get(j) ?? []), i]);
+  }
+  // When one stock can take everything that is left, every such stock is tried and the least paper wins.
+  const open = s.rem.flatMap((r, i) => (r > 0 ? [i] : []));
+  const whole = [...allowed].filter((j) => (s.left[j] ?? 0) > 0 && open.every((i) => (ctx.orientations[j]![i]?.length ?? 0) > 0));
+  if (whole.length > 1) {
+    let best: Group | null = null;
+    for (const j of whole) {
+      const g = singleLayout(ctx, j, open, s.rem, s.left[j] ?? 0, budget);
+      if (g && (!best || g.copies * ctx.stocks[j]!.areaMm < best.copies * ctx.stocks[best.stock]!.areaMm)) best = g;
+    }
+    if (!best) return null;
+    return { ...applyGroup(ctx, s, best.stock, best.pattern, best.copies, prof), rem: s.rem.map((r, i) => Math.max(0, r - best.copies * (best.pattern.counts[i] ?? 0))) };
   }
   let state = s;
   for (const [j, pieces] of assigned) {
@@ -557,7 +601,10 @@ const layoutKey = (g: Group): string => `${g.stock}|${g.pattern.counts.join(',')
 const layoutCount = (s: OuterState): number => new Set(s.groups.map(layoutKey)).size;
 /** Cut steps of a plan: every distinct layout is cut once, whatever its number of sheets. */
 const layoutCuts = (s: OuterState): number => [...new Map(s.groups.map((g) => [layoutKey(g), g.pattern.cuts])).values()].reduce((a, c) => a + c, 0);
-const CUTS_FIRST = 1e12; // dominates any paper-area term
+const sheetsOf = (s: OuterState): number => s.groups.reduce((a, g) => a + g.copies, 0);
+/** Fewest sheets first, then least material, then fewest cut steps. */
+const betterLayoutPlan = (ctx: Ctx, a: OuterState, b: OuterState): boolean =>
+  (sheetsOf(a) - sheetsOf(b) || finalScore(ctx, a) - finalScore(ctx, b) || layoutCuts(a) - layoutCuts(b)) < 0;
 
 /**
  * Best plan state that needs exactly k different layouts ("kalıp"), for k = 1…maxK. Every paper type is cut
@@ -566,7 +613,7 @@ const CUTS_FIRST = 1e12; // dominates any paper-area term
  */
 function layoutStates(ctx: Ctx, combos: Array<Set<number>>, budget: SearchBudget, from: number, slice: number, width: number, maxK: number): Map<number, OuterState> {
   const prof = PROFILES[0]!;
-  const best = new Map<number, { state: OuterState; score: number }>();
+  const best = new Map<number, OuterState>();
   combos.forEach((allowed, c) => {
     if (budget.stopped === 'cancelled') return;
     const sub: SearchBudget = { ...budget, stopped: 'completed', deadline: from + slice * ((c + 1) / combos.length) };
@@ -577,10 +624,9 @@ function layoutStates(ctx: Ctx, combos: Array<Set<number>>, budget: SearchBudget
         const done = completeWithLayouts(restricted, s, allowed, prof, sub);
         if (!done) continue;
         const k = layoutCount(done);
-        const score = layoutCuts(done) * CUTS_FIRST + finalScore(restricted, done);
         if (k <= maxK) {
           const prev = best.get(k);
-          if (!prev || score < prev.score) best.set(k, { state: done, score });
+          if (!prev || betterLayoutPlan(restricted, done, prev)) best.set(k, done);
         }
       }
       if (depth === maxK - 1) break;
@@ -591,7 +637,7 @@ function layoutStates(ctx: Ctx, combos: Array<Set<number>>, budget: SearchBudget
     budget.nodes += sub.nodes;
     if (sub.stopped === 'cancelled') budget.stopped = 'cancelled';
   });
-  return new Map([...best].map(([k, v]) => [k, v.state]));
+  return best;
 }
 
 // ---------------------------------------------------------------------------------------------

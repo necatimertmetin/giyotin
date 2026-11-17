@@ -56,6 +56,11 @@ export interface SheetSearchConfig {
   /** Longest cut the blade can make (grid units); a cut spans its whole region. undefined = unlimited. */
   bladeLength?: number;
   classify: (w: number, h: number) => 'offcut' | 'waste';
+  /**
+   * Per global piece index: orientation group (-1 = free). All pieces of one group that land on this sheet face
+   * the same way (same placed width), e.g. every product of the same size when "same direction" is on.
+   */
+  orientGroup?: number[];
 }
 
 export interface SheetPattern {
@@ -101,6 +106,8 @@ interface State {
   cuts: number;
   decisions: Decision | null;
   f: number;
+  /** Placed width per orientation group, 0 = not placed yet; null when there are no groups. */
+  lock: number[] | null;
 }
 
 const regionKey = (r: Rect): string => `${r.x},${r.y},${r.w},${r.h}`;
@@ -147,6 +154,22 @@ export function searchSheet(
   const maxCut = cfg.bladeLength ?? Number.POSITIVE_INFINITY;
   const limited = Number.isFinite(maxCut);
   const typeCount = orientations.length;
+  const group = cfg.orientGroup;
+  const groupCount = group ? Math.max(-1, ...group) + 1 : 0;
+  /** May piece `i` be placed in orientation `o` given the orientations its group already uses on this sheet? */
+  const allowed = (lock: number[] | null, i: number, o: Orientation): boolean => {
+    const g = group?.[i] ?? -1;
+    if (!lock || g < 0) return true;
+    const l = lock[g]!;
+    return l === 0 || l === o.w;
+  };
+  const lockWith = (lock: number[] | null, i: number, o: Orientation): number[] | null => {
+    const g = group?.[i] ?? -1;
+    if (!lock || g < 0 || lock[g] === o.w) return lock;
+    const next = lock.slice();
+    next[g] = o.w;
+    return next;
+  };
 
   const widths: number[] = [];
   const heights: number[] = [];
@@ -165,10 +188,10 @@ export function searchSheet(
     return o ? o.w * o.h : 0;
   };
 
-  const fits = (r: Rect, rem: number[]): boolean => {
+  const fits = (r: Rect, rem: number[], lock: number[] | null): boolean => {
     for (let i = 0; i < typeCount; i++) {
       if ((rem[i] ?? 0) <= 0) continue;
-      for (const o of orientations[i]!) if (o.w <= r.w && o.h <= r.h) return true;
+      for (const o of orientations[i]!) if (o.w <= r.w && o.h <= r.h && allowed(lock, i, o)) return true;
     }
     return false;
   };
@@ -191,15 +214,16 @@ export function searchSheet(
     placed: number,
     cuts: number,
     decisions: Decision | null,
+    lock: number[] | null,
   ): State => {
-    const open = regions.filter((r) => fits(r, rem));
+    const open = regions.filter((r) => fits(r, rem, lock));
     const f = placed + Math.min(demandArea(rem), estimate(open));
-    return { regions: open, rem, placed, cuts, decisions, f };
+    return { regions: open, rem, placed, cuts, decisions, f, lock };
   };
 
   const stateKey = (s: State): string => {
     const keys = s.regions.map(regionKey).sort();
-    return `${keys.join(';')}|${s.rem.join(',')}`;
+    return `${keys.join(';')}|${s.rem.join(',')}|${s.lock?.join(',') ?? ''}`;
   };
 
   /** Block split order whose cuts all fit the blade, or null when the block cannot be cut apart. */
@@ -251,7 +275,7 @@ export function searchSheet(
       const rem = s.rem[i] ?? 0;
       if (rem <= 0) continue;
       for (const o of orientations[i]!) {
-        if (o.w > region.w || o.h > region.h) continue;
+        if (o.w > region.w || o.h > region.h || !allowed(s.lock, i, o)) continue;
         const shapes = blockShapes(region, o, rem);
         for (const [cx, cy] of shapes) {
           const bw = cx * o.w + (cx - 1) * kerf;
@@ -282,6 +306,7 @@ export function searchSheet(
                 s.placed + cx * cy * o.w * o.h,
                 s.cuts + cuts,
                 { prev: s.decisions, data },
+                lockWith(s.lock, i, o),
               ),
             );
             budget.nodes++;
@@ -305,12 +330,16 @@ export function searchSheet(
       scored.sort((a, b) => a.slack - b.slack || b.p - a.p);
       for (const { p } of scored.slice(0, 3)) {
         const geo = cutGeometry(region, direction, p, kerf);
-        if (!geo.second || !fits(geo.first, s.rem) || !fits(geo.second, s.rem)) continue;
+        if (!geo.second || !fits(geo.first, s.rem, s.lock) || !fits(geo.second, s.rem, s.lock)) continue;
         out.push(
-          makeState([...others, geo.first, geo.second], s.rem, s.placed, s.cuts + 1, {
-            prev: s.decisions,
-            data: { op: 'cut', region, direction, position: p },
-          }),
+          makeState(
+            [...others, geo.first, geo.second],
+            s.rem,
+            s.placed,
+            s.cuts + 1,
+            { prev: s.decisions, data: { op: 'cut', region, direction, position: p } },
+            s.lock,
+          ),
         );
         budget.nodes++;
       }
@@ -320,7 +349,7 @@ export function searchSheet(
   // Greedy completion of a state: repeatedly take the most promising block placement. The completed
   // state is a real, valid pattern, so its value is an achievable lower bound for the state.
   const rollout = (s: State): State => {
-    let { regions, rem, placed, cuts, decisions } = s;
+    let { regions, rem, placed, cuts, decisions, lock } = s;
     while (regions.length > 0) {
       let ri = 0;
       for (let i = 1; i < regions.length; i++) {
@@ -341,7 +370,7 @@ export function searchSheet(
         const r = rem[i] ?? 0;
         if (r <= 0) continue;
         for (const o of orientations[i]!) {
-          if (o.w > region.w || o.h > region.h) continue;
+          if (o.w > region.w || o.h > region.h || !allowed(lock, i, o)) continue;
           for (const [cx, cy] of blockShapes(region, o, r)) {
             const area = cx * cy * o.w * o.h;
             const bw = cx * o.w + (cx - 1) * kerf;
@@ -368,7 +397,8 @@ export function searchSheet(
       nextRem[i] = (rem[i] ?? 0) - cx * cy;
       const bestVariant = variant;
       const bestChildren = children;
-      regions = [...others, ...bestChildren].filter((r) => fits(r, nextRem));
+      lock = lockWith(lock, i, o);
+      regions = [...others, ...bestChildren].filter((r) => fits(r, nextRem, lock));
       rem = nextRem;
       placed += cx * cy * o.w * o.h;
       cuts += (bw < region.w ? 1 : 0) + (bh < region.h ? 1 : 0) + cx * cy - 1;
@@ -378,16 +408,16 @@ export function searchSheet(
       };
       budget.nodes += 3;
     }
-    return { regions, rem, placed, cuts, decisions, f: placed };
+    return { regions, rem, placed, cuts, decisions, f: placed, lock };
   };
 
-  const root = makeState([cfg.usable], remaining.slice(), 0, 0, null);
+  const root = makeState([cfg.usable], remaining.slice(), 0, 0, null, groupCount > 0 ? new Array<number>(groupCount).fill(0) : null);
   let beam: State[] = [root];
   const finished: State[] = [];
   const finishedKeys = new Set<string>();
   const regionKeys = (s: State): string => s.regions.map(regionKey).sort().join(';');
   const keepFinished = (s: State): void => {
-    const k = `${s.rem.join(',')}|${regionKeys(s)}|${s.placed}|${s.cuts}`;
+    const k = `${s.rem.join(',')}|${regionKeys(s)}|${s.placed}|${s.cuts}|${s.lock?.join(',') ?? ''}`;
     if (finishedKeys.has(k)) return;
     finishedKeys.add(k);
     finished.push(s);
